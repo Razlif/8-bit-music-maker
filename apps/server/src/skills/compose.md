@@ -1,0 +1,1 @@
+Write a coherent loop: establish a motif, vary it, and leave a clear return to the beginning. Choose pitches within each preset's range. Coordinate bass with harmony and kick; leave space between roles. Key metadata is guidance, not an automatic transpose. No chords within a monophonic track. Never change mix or structure without permission.

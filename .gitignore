@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.vite/
+graphify-out/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+apps/web/playwright-report/
+apps/web/test-results/
+songs/
+.local/
+*.log
+
+# Coverage and temporary tooling output
+coverage/
+.nyc_output/
+*.tmp
+
+# OS metadata
+.DS_Store
+Thumbs.db

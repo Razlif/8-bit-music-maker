@@ -1,0 +1,1159 @@
+[
+  {
+    "id": "straight",
+    "file": "01-straight.wav",
+    "seconds": 4.15,
+    "peak": 0.46200141310691833,
+    "rms": 0.12196084311774126,
+    "bpm": 120,
+    "bars": 1,
+    "repetitions": 2,
+    "tracks": {
+      "lead": "bright_lead",
+      "kick": "kick"
+    },
+    "events": [
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 72,
+        "start": {
+          "n": 0,
+          "d": 1
+        },
+        "end": {
+          "n": 1,
+          "d": 2
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 76,
+        "start": {
+          "n": 1,
+          "d": 2
+        },
+        "end": {
+          "n": 1,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 79,
+        "start": {
+          "n": 1,
+          "d": 1
+        },
+        "end": {
+          "n": 3,
+          "d": 2
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 76,
+        "start": {
+          "n": 3,
+          "d": 2
+        },
+        "end": {
+          "n": 2,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 77,
+        "start": {
+          "n": 2,
+          "d": 1
+        },
+        "end": {
+          "n": 5,
+          "d": 2
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 81,
+        "start": {
+          "n": 5,
+          "d": 2
+        },
+        "end": {
+          "n": 3,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 79,
+        "start": {
+          "n": 3,
+          "d": 1
+        },
+        "end": {
+          "n": 7,
+          "d": 2
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 74,
+        "start": {
+          "n": 7,
+          "d": 2
+        },
+        "end": {
+          "n": 4,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 0,
+          "d": 1
+        },
+        "end": {
+          "n": 1,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 1,
+          "d": 1
+        },
+        "end": {
+          "n": 2,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 2,
+          "d": 1
+        },
+        "end": {
+          "n": 3,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 3,
+          "d": 1
+        },
+        "end": {
+          "n": 4,
+          "d": 1
+        }
+      }
+    ]
+  },
+  {
+    "id": "gentle",
+    "file": "02-gentle-swing.wav",
+    "seconds": 4.15,
+    "peak": 0.46200141310691833,
+    "rms": 0.12196084697016339,
+    "bpm": 120,
+    "bars": 1,
+    "repetitions": 2,
+    "tracks": {
+      "lead": "bright_lead",
+      "kick": "kick"
+    },
+    "events": [
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 72,
+        "start": {
+          "n": 0,
+          "d": 1
+        },
+        "end": {
+          "n": 3,
+          "d": 5
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 76,
+        "start": {
+          "n": 3,
+          "d": 5
+        },
+        "end": {
+          "n": 1,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 79,
+        "start": {
+          "n": 1,
+          "d": 1
+        },
+        "end": {
+          "n": 8,
+          "d": 5
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 76,
+        "start": {
+          "n": 8,
+          "d": 5
+        },
+        "end": {
+          "n": 2,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 77,
+        "start": {
+          "n": 2,
+          "d": 1
+        },
+        "end": {
+          "n": 13,
+          "d": 5
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 81,
+        "start": {
+          "n": 13,
+          "d": 5
+        },
+        "end": {
+          "n": 3,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 79,
+        "start": {
+          "n": 3,
+          "d": 1
+        },
+        "end": {
+          "n": 18,
+          "d": 5
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 74,
+        "start": {
+          "n": 18,
+          "d": 5
+        },
+        "end": {
+          "n": 4,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 0,
+          "d": 1
+        },
+        "end": {
+          "n": 1,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 1,
+          "d": 1
+        },
+        "end": {
+          "n": 2,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 2,
+          "d": 1
+        },
+        "end": {
+          "n": 3,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 3,
+          "d": 1
+        },
+        "end": {
+          "n": 4,
+          "d": 1
+        }
+      }
+    ]
+  },
+  {
+    "id": "swing",
+    "file": "03-triplet-swing.wav",
+    "seconds": 4.15,
+    "peak": 0.46200141310691833,
+    "rms": 0.12196084025296085,
+    "bpm": 120,
+    "bars": 1,
+    "repetitions": 2,
+    "tracks": {
+      "lead": "bright_lead",
+      "kick": "kick"
+    },
+    "events": [
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 72,
+        "start": {
+          "n": 0,
+          "d": 1
+        },
+        "end": {
+          "n": 2,
+          "d": 3
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 76,
+        "start": {
+          "n": 2,
+          "d": 3
+        },
+        "end": {
+          "n": 1,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 79,
+        "start": {
+          "n": 1,
+          "d": 1
+        },
+        "end": {
+          "n": 5,
+          "d": 3
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 76,
+        "start": {
+          "n": 5,
+          "d": 3
+        },
+        "end": {
+          "n": 2,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 77,
+        "start": {
+          "n": 2,
+          "d": 1
+        },
+        "end": {
+          "n": 8,
+          "d": 3
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 81,
+        "start": {
+          "n": 8,
+          "d": 3
+        },
+        "end": {
+          "n": 3,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 79,
+        "start": {
+          "n": 3,
+          "d": 1
+        },
+        "end": {
+          "n": 11,
+          "d": 3
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 74,
+        "start": {
+          "n": 11,
+          "d": 3
+        },
+        "end": {
+          "n": 4,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 0,
+          "d": 1
+        },
+        "end": {
+          "n": 1,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 1,
+          "d": 1
+        },
+        "end": {
+          "n": 2,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 2,
+          "d": 1
+        },
+        "end": {
+          "n": 3,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 3,
+          "d": 1
+        },
+        "end": {
+          "n": 4,
+          "d": 1
+        }
+      }
+    ]
+  },
+  {
+    "id": "phrase",
+    "file": "04-mixed-phrase.wav",
+    "seconds": 8.15,
+    "peak": 0.7053262591362,
+    "rms": 0.1764455632307589,
+    "bpm": 120,
+    "bars": 2,
+    "repetitions": 2,
+    "tracks": {
+      "lead": "bright_lead",
+      "bass": "chip_bass",
+      "kick": "kick",
+      "hat": "closed_hat"
+    },
+    "events": [
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 72,
+        "start": {
+          "n": 0,
+          "d": 1
+        },
+        "end": {
+          "n": 1,
+          "d": 3
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 76,
+        "start": {
+          "n": 1,
+          "d": 3
+        },
+        "end": {
+          "n": 2,
+          "d": 3
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 79,
+        "start": {
+          "n": 2,
+          "d": 3
+        },
+        "end": {
+          "n": 1,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 81,
+        "start": {
+          "n": 1,
+          "d": 1
+        },
+        "end": {
+          "n": 5,
+          "d": 3
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 79,
+        "start": {
+          "n": 5,
+          "d": 3
+        },
+        "end": {
+          "n": 2,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 77,
+        "start": {
+          "n": 2,
+          "d": 1
+        },
+        "end": {
+          "n": 11,
+          "d": 5
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 76,
+        "start": {
+          "n": 11,
+          "d": 5
+        },
+        "end": {
+          "n": 12,
+          "d": 5
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 74,
+        "start": {
+          "n": 12,
+          "d": 5
+        },
+        "end": {
+          "n": 13,
+          "d": 5
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 76,
+        "start": {
+          "n": 13,
+          "d": 5
+        },
+        "end": {
+          "n": 14,
+          "d": 5
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 77,
+        "start": {
+          "n": 14,
+          "d": 5
+        },
+        "end": {
+          "n": 3,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 79,
+        "start": {
+          "n": 3,
+          "d": 1
+        },
+        "end": {
+          "n": 9,
+          "d": 2
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 72,
+        "start": {
+          "n": 5,
+          "d": 1
+        },
+        "end": {
+          "n": 17,
+          "d": 3
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 74,
+        "start": {
+          "n": 17,
+          "d": 3
+        },
+        "end": {
+          "n": 19,
+          "d": 3
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 76,
+        "start": {
+          "n": 19,
+          "d": 3
+        },
+        "end": {
+          "n": 7,
+          "d": 1
+        }
+      },
+      {
+        "track": "lead",
+        "instrument": "bright_lead",
+        "midi": 72,
+        "start": {
+          "n": 7,
+          "d": 1
+        },
+        "end": {
+          "n": 31,
+          "d": 4
+        }
+      },
+      {
+        "track": "bass",
+        "instrument": "chip_bass",
+        "midi": 48,
+        "start": {
+          "n": 0,
+          "d": 1
+        },
+        "end": {
+          "n": 1,
+          "d": 1
+        }
+      },
+      {
+        "track": "bass",
+        "instrument": "chip_bass",
+        "midi": 43,
+        "start": {
+          "n": 3,
+          "d": 2
+        },
+        "end": {
+          "n": 2,
+          "d": 1
+        }
+      },
+      {
+        "track": "bass",
+        "instrument": "chip_bass",
+        "midi": 41,
+        "start": {
+          "n": 2,
+          "d": 1
+        },
+        "end": {
+          "n": 3,
+          "d": 1
+        }
+      },
+      {
+        "track": "bass",
+        "instrument": "chip_bass",
+        "midi": 43,
+        "start": {
+          "n": 3,
+          "d": 1
+        },
+        "end": {
+          "n": 4,
+          "d": 1
+        }
+      },
+      {
+        "track": "bass",
+        "instrument": "chip_bass",
+        "midi": 48,
+        "start": {
+          "n": 4,
+          "d": 1
+        },
+        "end": {
+          "n": 5,
+          "d": 1
+        }
+      },
+      {
+        "track": "bass",
+        "instrument": "chip_bass",
+        "midi": 43,
+        "start": {
+          "n": 11,
+          "d": 2
+        },
+        "end": {
+          "n": 6,
+          "d": 1
+        }
+      },
+      {
+        "track": "bass",
+        "instrument": "chip_bass",
+        "midi": 48,
+        "start": {
+          "n": 6,
+          "d": 1
+        },
+        "end": {
+          "n": 7,
+          "d": 1
+        }
+      },
+      {
+        "track": "bass",
+        "instrument": "chip_bass",
+        "midi": 43,
+        "start": {
+          "n": 7,
+          "d": 1
+        },
+        "end": {
+          "n": 15,
+          "d": 2
+        }
+      },
+      {
+        "track": "bass",
+        "instrument": "chip_bass",
+        "midi": 48,
+        "start": {
+          "n": 15,
+          "d": 2
+        },
+        "end": {
+          "n": 8,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 0,
+          "d": 1
+        },
+        "end": {
+          "n": 1,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 2,
+          "d": 1
+        },
+        "end": {
+          "n": 3,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 7,
+          "d": 2
+        },
+        "end": {
+          "n": 4,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 4,
+          "d": 1
+        },
+        "end": {
+          "n": 5,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 6,
+          "d": 1
+        },
+        "end": {
+          "n": 7,
+          "d": 1
+        }
+      },
+      {
+        "track": "kick",
+        "instrument": "kick",
+        "midi": null,
+        "start": {
+          "n": 15,
+          "d": 2
+        },
+        "end": {
+          "n": 8,
+          "d": 1
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 0,
+          "d": 1
+        },
+        "end": {
+          "n": 1,
+          "d": 4
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 1,
+          "d": 2
+        },
+        "end": {
+          "n": 3,
+          "d": 4
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 1,
+          "d": 1
+        },
+        "end": {
+          "n": 5,
+          "d": 3
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 5,
+          "d": 3
+        },
+        "end": {
+          "n": 2,
+          "d": 1
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 2,
+          "d": 1
+        },
+        "end": {
+          "n": 9,
+          "d": 4
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 5,
+          "d": 2
+        },
+        "end": {
+          "n": 11,
+          "d": 4
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 3,
+          "d": 1
+        },
+        "end": {
+          "n": 7,
+          "d": 2
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 7,
+          "d": 2
+        },
+        "end": {
+          "n": 4,
+          "d": 1
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 4,
+          "d": 1
+        },
+        "end": {
+          "n": 17,
+          "d": 4
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 9,
+          "d": 2
+        },
+        "end": {
+          "n": 19,
+          "d": 4
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 5,
+          "d": 1
+        },
+        "end": {
+          "n": 11,
+          "d": 2
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 11,
+          "d": 2
+        },
+        "end": {
+          "n": 6,
+          "d": 1
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 6,
+          "d": 1
+        },
+        "end": {
+          "n": 25,
+          "d": 4
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 13,
+          "d": 2
+        },
+        "end": {
+          "n": 27,
+          "d": 4
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 7,
+          "d": 1
+        },
+        "end": {
+          "n": 29,
+          "d": 4
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 29,
+          "d": 4
+        },
+        "end": {
+          "n": 15,
+          "d": 2
+        }
+      },
+      {
+        "track": "hat",
+        "instrument": "closed_hat",
+        "midi": null,
+        "start": {
+          "n": 15,
+          "d": 2
+        },
+        "end": {
+          "n": 31,
+          "d": 4
+        }
+      }
+    ]
+  },
+  {
+    "id": "comparison",
+    "file": "00-timing-comparison.wav",
+    "seconds": 13.35,
+    "peak": 0.46200141310691833,
+    "rms": 0.11777807777295761,
+    "order": [
+      "straight",
+      "gentle",
+      "swing"
+    ]
+  }
+]

@@ -1,0 +1,35 @@
+{
+  "name": "eight-bit-music-maker",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22.16"},
+  "workspaces": [
+    "apps/server",
+    "apps/web",
+    "packages/core"
+  ],
+  "scripts": {
+    "dev": "npm run build:core && concurrently -k \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm --workspace apps/server run dev",
+    "dev:web": "npm --workspace apps/web run dev",
+    "build": "npm run build:core && npm run build:server && npm run build:web",
+    "build:core": "npm --workspace packages/core run build",
+    "build:server": "npm --workspace apps/server run build",
+    "build:web": "npm --workspace apps/web run build",
+    "start": "npm --workspace apps/server run start",
+    "typecheck": "npm run typecheck:core && npm run typecheck:server && npm run typecheck:web",
+    "typecheck:core": "npm --workspace packages/core run typecheck",
+    "typecheck:server": "npm --workspace apps/server run typecheck",
+    "typecheck:web": "npm --workspace apps/web run typecheck",
+    "test": "npm run build:core && npm --workspace packages/core run test && npm --workspace apps/server run test",
+    "test:e2e": "npm run build:core && npm --workspace apps/web run test:e2e",
+    "format": "prettier --write \"apps/*/src/**/*.{ts,tsx,css}\" \"packages/core/src/**/*.ts\"",
+    "eval:live": "npm --workspace apps/server run eval:live"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "concurrently": "^9.1.0",
+    "prettier": "^3.9.8",
+    "typescript": "^5.8.3"
+  }
+}

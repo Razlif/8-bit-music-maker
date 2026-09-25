@@ -1,0 +1,8 @@
+{
+  "name": "@eight-bit/web",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "tsc -b && vite build", "typecheck": "tsc -b --pretty false", "test:e2e": "playwright test" },
+  "dependencies": { "@eight-bit/core": "*", "@vitejs/plugin-react": "^4.4.1", "react": "^19.1.0", "react-dom": "^19.1.0", "tone": "^15.1.5" },
+  "devDependencies": { "@types/react": "^19.1.2", "@types/react-dom": "^19.1.2", "typescript": "^5.8.3", "vite": "^6.3.5" }
+}
