@@ -4,11 +4,11 @@ import React, { useEffect, useState } from "react";
 export function AgentMonitor({
   songId,
   runId,
-  onSpeech,
+  onModelSpeech,
 }: {
   songId: string;
   runId: string | null;
-  onSpeech?: (text: string) => void;
+  onModelSpeech?: (text: string) => void;
 }) {
   const [runs, setRuns] = useState<any[]>([]);
   const [selected, setSelected] = useState("");
@@ -22,7 +22,6 @@ export function AgentMonitor({
     setLive(null);
     if (!runId) {
       setConnection("");
-      onSpeech?.("Drop in a thought. I’ll turn it into a loop.");
       return;
     }
     const source = new EventSource(`/api/runs/${runId}/events`);
@@ -36,22 +35,12 @@ export function AgentMonitor({
       if (e.songId !== songId || e.runId !== runId) return;
       if (e.type === "model_started") {
         setLive({ runId, ...e.payload });
-        onSpeech?.(
-          e.payload.purpose === "music_plan"
-            ? "I’m mapping the loop…"
-            : "I’m writing the pattern…",
-        );
       }
       if (e.type === "model_stream") {
         setLive({ runId, ...e.payload });
-        onSpeech?.(shortSpeech(e.payload.summary, e.payload.outputCharacters));
+        const speech = shortSpeech(e.payload.summary);
+        if (speech) onModelSpeech?.(speech);
       }
-      if (e.type === "passage")
-        onSpeech?.(
-          `Shaping bars ${(e.payload.bars || []).join("–")} · passage ${e.payload.index}/${e.payload.total}`,
-        );
-      if (e.type === "arranging")
-        onSpeech?.("Choosing the parts that need love…");
       if (e.type === "snapshot" && e.payload.modelStream)
         setLive({ runId, ...e.payload.modelStream });
       if (
@@ -265,14 +254,13 @@ export function AgentMonitor({
   );
 }
 
-function shortSpeech(summary: unknown, outputCharacters: unknown) {
+function shortSpeech(summary: unknown) {
   const raw = String(summary ?? "").trim();
   if (raw) {
     const block = raw.split(/\*\*[^*]+\*\*/).filter(Boolean).at(-1) ?? raw;
-    const sentence = block.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/)[0] || block;
-    return sentence.slice(0, 190).replace(/[,:;\s]+$/, "") + (sentence.length > 190 ? "…" : "");
+    const sentences = block.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/).filter(Boolean);
+    const excerpt = sentences.slice(-2).join(" ") || block;
+    return excerpt.slice(0, 320).replace(/[,:;\s]+$/, "") + (excerpt.length > 320 ? "…" : "");
   }
-  return Number(outputCharacters) > 0
-    ? "I’m putting the notes on tape…"
-    : "I’m listening for the groove…";
+  return "";
 }

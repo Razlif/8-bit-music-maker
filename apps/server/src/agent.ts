@@ -492,7 +492,7 @@ function orchestrationPrompt(input: RunInput) {
       workers: "type=melodic means rhythm worker followed by pitch worker for pitched instruments; arpeggios are ordinary melodic tasks described by pitchInstruction. Hit instruments use rhythm only. type=harmonic means rhythm worker followed by deterministic block-chord realization from progression, register, and voicing.",
       taskType: "Use melodic for single-note lines, including bass, lead, melody and arpeggios. Use harmonic only for simultaneous block chords. Do not add a role field: track name, instrumentId, type and instructions describe the task.",
       defaultArrangement: "When the user asks broadly to write, create, or compose a song without limiting the instrumentation, create one task for each of the six standard starter tracks listed in SONG_CONTEXT: Bright Lead (bright_lead, melodic), Chip Bass (chip_bass, melodic), Kick (kick, rhythm-only percussion), Hi-Hat (closed_hat, rhythm-only percussion), Snare (snare, rhythm-only percussion), and Harmony (chip_pad, harmonic block chords). Reuse those existing tracks by their t-alias; do not add duplicates. For Harmony provide a progression, register, voicing and chord rhythm. If the user asks for a subset, honor it and leave other starter tracks unchanged; explicit instrumentation overrides this default.",
-      harmony: "Return a progression of absolute chord roots and supported qualities. startBeat is zero-based and endBeat is exclusive. Cover every beat of each harmonic task with contiguous non-overlapping chords. Convert Roman numeral requests into concrete roots using the song key. A chord change requires an attack at its start. Supported qualities: " + CHORD_QUALITIES.join(", "),
+      harmony: "Return a progression of absolute chord roots and supported qualities. startBeat is zero-based and endBeat is exclusive. Cover every beat of each harmonic task with contiguous non-overlapping chords. Convert Roman numeral requests into concrete roots using the song key. A chord boundary may be silent; the next attack uses the chord active at that moment. Never hold the previous chord through a chord change: use x at the boundary when the new chord must continue sounding, or . when silence is intended. Supported qualities: " + CHORD_QUALITIES.join(", "),
       newTracks: "Create multiple new tracks when the request requires them. Each new track must be declared once in newTracks and have one matching task.",
       guidance: "Give concrete, short instructions: pulse density, rests, syncopation, repeated cells, phrase changes and return points. Do not inject bass, drums or any other role unless the request calls for it.",
     }) +
@@ -539,7 +539,48 @@ function orchestrationPrompt(input: RunInput) {
     section("OUTPUT_CONTRACT", "Return one minified JSON object matching the example shape. No markdown, no prose, no notation rows, no extra keys. Use one task per track.");
 }
 
-function trackRhythmPrompt(task: OrchestrationPlan["tasks"][number], instrumentId: string, rows: BoundRow[], tutorial: string) {
+function harmonicBoundaryRows(
+  task: OrchestrationPlan["tasks"][number],
+  progression: OrchestrationPlan["progression"],
+  rows: BoundRow[],
+) {
+  if (task.type !== "harmonic") return [];
+  const starts = new Set(progression.map((chord) => chord.startBeat));
+  return rows
+    .filter((row) => starts.has((row.bar - 1) * 4 + row.beat - 1))
+    .map((row) => ({
+      rowRef: row.rowRef,
+      bar: row.bar,
+      beat: row.beat,
+      rule: "first slot may be x or . but never -",
+    }));
+}
+
+function validateHarmonicRhythmBoundaries(
+  task: OrchestrationPlan["tasks"][number],
+  progression: OrchestrationPlan["progression"],
+  rows: BoundRow[],
+  rhythm: BoundRhythm[],
+) {
+  const byRef = new Map(rhythm.map((row) => [row.rowRef, row.pattern]));
+  for (const boundary of harmonicBoundaryRows(task, progression, rows)) {
+    if (byRef.get(boundary.rowRef)?.[0] === "-") {
+      const absoluteBeat = (boundary.bar - 1) * 4 + boundary.beat - 1;
+      throw new Error(
+        `CHORD_CHANGE_CANNOT_HOLD: beat ${absoluteBeat}; use x to attack the new chord or . to leave silence`,
+      );
+    }
+  }
+}
+
+function trackRhythmPrompt(
+  task: OrchestrationPlan["tasks"][number],
+  instrumentId: string,
+  rows: BoundRow[],
+  tutorial: string,
+  progression: OrchestrationPlan["progression"],
+) {
+  const boundaries = harmonicBoundaryRows(task, progression, rows);
   return section("ROLE", "You are a track-local rhythm worker. Execute the task exactly. You do not choose pitches, instruments, harmony, or explanations.") +
     section("TASK", {
       track: task.track,
@@ -551,6 +592,10 @@ function trackRhythmPrompt(task: OrchestrationPlan["tasks"][number], instrumentI
     }) +
     section("RHYTHM_TUTORIAL", tutorial) +
     section("TARGET_ROWS", rows.map((row) => ({ rowRef: row.rowRef, track: task.track, bar: row.bar, beat: row.beat }))) +
+    (boundaries.length ? section("HARMONY_BOUNDARIES", {
+      rows: boundaries,
+      rule: "A chord boundary can be silent. Use . when silent, x when the new chord should sound immediately, and never - because that would carry the previous chord across the change.",
+    }) : "") +
     section("RHYTHM_LANGUAGE", "pattern is exactly four sixteenth slots: x=new attack, -=hold for pitched instruments only, .=rest. Percussion uses x and . only.") +
     section("OUTPUT_CONTRACT", { rows: rows.length, shape: { rows: [{ rowRef: rows[0]?.rowRef ?? "r1", pattern: "x.x." }] }, rule: "Return exactly one minified JSON object on one line. Every target rowRef appears exactly once. pattern is exactly four characters using x, -, and .; do not include prose or formatting." });
 }
@@ -831,7 +876,7 @@ async function runPassages(
       const alias = trackAliases(input.song).get(group[0].trackRef) ?? group[0].trackRef;
       const task = plan.tasks.find((candidate) => candidate.track === alias && group.every((row) => row.bar >= candidate.startBar && row.bar <= candidate.endBar));
       if (!task) throw new Error("MISSING_TASK_FOR_GROUP: " + alias);
-      const prompt = trackRhythmPrompt(task, task.instrumentId, group, tutorial);
+      const prompt = trackRhythmPrompt(task, task.instrumentId, group, tutorial, plan.progression);
       let feedback = "";
       for (let attempt = 0; attempt < MAX_MODEL_ATTEMPTS; attempt++) {
         let output: unknown;
@@ -841,6 +886,7 @@ async function runPassages(
           const rhythm = bindRhythm(output, group);
           if (instrumentDefinition(task.instrumentId)?.kind === "hit" && rhythm.some((row) => row.pattern.includes("-")))
             throw new Error("PERCUSSION_HOLD: hit tracks use x and . only");
+          validateHarmonicRhythmBoundaries(task, plan.progression, group, rhythm);
           return { index, rhythm };
         } catch (error) {
           if (isCancelled(input, error) || attempt === MAX_MODEL_ATTEMPTS - 1) throw error;
@@ -929,15 +975,6 @@ async function runPassages(
         });
         return { trackRef: row.trackRef, bar: row.bar, beat: row.beat, body: "[" + tokens.join(" ") + "]" };
       });
-      for (const chord of plan.progression) {
-        if (chord.startBeat < task.startBar * 4 - 4 || chord.startBeat >= task.endBar * 4) continue;
-        const bar = Math.floor(chord.startBeat / 4) + 1;
-        const beat = chord.startBeat % 4 + 1;
-        const row = rows.find((item) => item.bar === bar && item.beat === beat);
-        const pattern = row && rhythm.find((item) => item.rowRef === row.rowRef)?.pattern;
-        if (!pattern || pattern[0] !== "x")
-          throw new Error("CHORD_CHANGE_REQUIRES_ATTACK: beat " + chord.startBeat);
-      }
       const result = buildCandidate(working, passage, chordRows);
       aggregate.rowReplacements.push(...result.candidate.rowReplacements.map((row) => ({ ...row, trackRef: aggregateTrackRef(row.trackRef) })));
       working = result.next;

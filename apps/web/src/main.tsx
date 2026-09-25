@@ -38,17 +38,46 @@ type Summary = {
   history?: string;
 };
 const player = new Player();
-type CompanionScene = "idle" | "listening" | "keyboard" | "dj" | "guitar" | "thinking" | "celebrate" | "dance";
-const stageScenes: Record<string, { scene: CompanionScene; speech: string; label: string }> = {
-  reading: { scene: "listening", speech: "Listening for the groove…", label: "Reading music" },
-  planning: { scene: "listening", speech: "Listening for the groove…", label: "Reading the song" },
-  arranging: { scene: "dj", speech: "Sketching the arrangement…", label: "Choosing the musical work" },
-  passage: { scene: "keyboard", speech: "Laying out the next phrase…", label: "Preparing the next passage" },
-  rhythm: { scene: "dj", speech: "Finding the pocket…", label: "Building the groove" },
-  composing: { scene: "keyboard", speech: "Trying notes against the groove…", label: "Composing" },
-  validating: { scene: "listening", speech: "Checking how it all sits…", label: "Checking changes" },
-  repairing: { scene: "thinking", speech: "Tuning up a tricky bit…", label: "Repairing worker output" },
-  retrying: { scene: "thinking", speech: "That one got tangled. Trying again…", label: "Retrying worker" },
+type CompanionScene = "idle" | "keyboard" | "dj" | "thinking" | "celebrate" | "dance" | "repairing";
+type WorkPhase = "orchestration" | "rhythm" | "pitch" | "validation";
+type WorkCue = { scene: "dj" | "keyboard"; speech: string };
+const workCues: Record<WorkPhase, WorkCue[]> = {
+  orchestration: [
+    { scene: "dj", speech: "Listening for the shape…" },
+    { scene: "keyboard", speech: "Sketching out the parts…" },
+  ],
+  rhythm: [
+    { scene: "dj", speech: "Finding the pocket…" },
+    { scene: "keyboard", speech: "Tapping out the pattern…" },
+  ],
+  pitch: [
+    { scene: "keyboard", speech: "Trying notes against the groove…" },
+    { scene: "dj", speech: "Listening back to the phrase…" },
+  ],
+  validation: [
+    { scene: "dj", speech: "Playing the arrangement back…" },
+    { scene: "keyboard", speech: "Checking the final voicing…" },
+  ],
+};
+const stageLabels: Record<string, string> = {
+  reading: "Reading music",
+  planning: "Reading the song",
+  arranging: "Choosing the musical work",
+  passage: "Preparing the next passage",
+  rhythm: "Building the groove",
+  composing: "Composing",
+  validating: "Checking changes",
+  repairing: "Repairing worker output",
+  retrying: "Retrying worker",
+};
+const modelPurposePhases: Record<string, WorkPhase> = {
+  music_orchestration: "orchestration",
+  legacy_music_plan: "orchestration",
+  music_plan: "orchestration",
+  rhythm_grid: "rhythm",
+  pitch_fill: "pitch",
+  legacy_music_replacement: "pitch",
+  music_candidate: "pitch",
 };
 function App() {
   const [exporting, setExporting] = useState(false);
@@ -61,7 +90,6 @@ function App() {
     [error, setError] = useState(""),
     [agentThought, setAgentThought] = useState("Drop in a thought. I’ll turn it into a loop."),
     [companionScene, setCompanionScene] = useState<CompanionScene>("idle"),
-    [companionThinking, setCompanionThinking] = useState(false),
     [playing, setPlaying] = useState(false),
     [beat, setBeat] = useState(0),
     [solo, setSolo] = useState<Set<string>>(new Set());
@@ -77,14 +105,92 @@ function App() {
     pendingCommand = useRef<Promise<void> | null>(null),
     commandFailed = useRef(false),
     songRef = useRef<Song | null>(null),
-    activeRun = useRef<string | null>(null);
+    activeRun = useRef<string | null>(null),
+    modelSpeechUntil = useRef(0),
+    speechHoldTimer = useRef<number | null>(null),
+    currentPresetSpeech = useRef("Drop in a thought. I’ll turn it into a loop."),
+    cueTimer = useRef<number | null>(null),
+    desiredWorkPhase = useRef<WorkPhase>("orchestration"),
+    currentCue = useRef<{ phase: WorkPhase; index: number } | null>(null),
+    problemActive = useRef(false),
+    activeModelCalls = useRef(new Map<string, WorkPhase>());
   songRef.current = song;
   activeRun.current = runId;
   const refresh = () => api("/songs").then(setSongs);
+  const clearSpeechHold = () => {
+    modelSpeechUntil.current = 0;
+    if (speechHoldTimer.current !== null) {
+      window.clearTimeout(speechHoldTimer.current);
+      speechHoldTimer.current = null;
+    }
+  };
+  const setPresetSpeech = (text: string) => {
+    currentPresetSpeech.current = text;
+    if (Date.now() < modelSpeechUntil.current) return;
+    setAgentThought(text);
+  };
+  const setModelSpeech = (text: string) => {
+    modelSpeechUntil.current = Date.now() + 4000;
+    setAgentThought(text);
+    if (speechHoldTimer.current !== null)
+      window.clearTimeout(speechHoldTimer.current);
+    speechHoldTimer.current = window.setTimeout(() => {
+      modelSpeechUntil.current = 0;
+      speechHoldTimer.current = null;
+      setAgentThought(currentPresetSpeech.current);
+    }, 4000);
+  };
+  const applyWorkCue = (phase: WorkPhase, requestedIndex: number) => {
+    const cues = workCues[phase];
+    const index = requestedIndex % cues.length;
+    const cue = cues[index];
+    currentCue.current = { phase, index };
+    setCompanionScene(cue.scene);
+    setPresetSpeech(cue.speech);
+  };
+  const stopWorkCues = () => {
+    if (cueTimer.current !== null) {
+      window.clearInterval(cueTimer.current);
+      cueTimer.current = null;
+    }
+    currentCue.current = null;
+    activeModelCalls.current.clear();
+  };
+  const startWorkCues = (phase: WorkPhase) => {
+    stopWorkCues();
+    desiredWorkPhase.current = phase;
+    problemActive.current = false;
+    applyWorkCue(phase, 0);
+    cueTimer.current = window.setInterval(() => {
+      if (problemActive.current) return;
+      const desired = desiredWorkPhase.current;
+      const visible = currentCue.current;
+      applyWorkCue(
+        desired,
+        visible?.phase === desired ? visible.index + 1 : 0,
+      );
+    }, 5000);
+  };
+  const selectWorkPhase = (phase: WorkPhase) => {
+    desiredWorkPhase.current = phase;
+  };
+  const resumeWorkPhase = (phase: WorkPhase) => {
+    desiredWorkPhase.current = phase;
+    problemActive.current = false;
+    applyWorkCue(phase, 0);
+  };
+  const showProblem = (scene: "thinking" | "repairing", speech: string) => {
+    problemActive.current = true;
+    clearSpeechHold();
+    currentPresetSpeech.current = speech;
+    setAgentThought(speech);
+    setCompanionScene(scene);
+  };
   const showError = (e: unknown) => {
-    setError(e instanceof Error ? e.message : String(e));
-    setCompanionThinking(true);
-    setCompanionScene("thinking");
+    const message = e instanceof Error ? e.message : String(e);
+    setError(message);
+    stopWorkCues();
+    showProblem("thinking", "Something’s off. Let me check the signal…");
   };
   useEffect(() => {
     refresh().catch(showError);
@@ -93,6 +199,7 @@ function App() {
       .catch(showError);
     return () => {
       events.current?.close();
+      stopWorkCues();
       player.stop();
     };
   }, []);
@@ -107,20 +214,13 @@ function App() {
     return () => cancelAnimationFrame(frame);
   }, [playing]);
   useEffect(() => {
-    if (!runId && !launching) {
-      if (playing) setCompanionScene("dance");
-      return;
-    }
-    if (companionThinking) {
-      setCompanionScene("thinking");
-      return;
-    }
-    setCompanionScene("dj");
-    const timer = window.setInterval(() => {
-      setCompanionScene((current) => current === "dj" ? "keyboard" : current === "keyboard" ? "guitar" : "dj");
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [runId, launching, companionThinking, playing]);
+    if (!runId && !launching && playing) setCompanionScene("dance");
+  }, [runId, launching, playing]);
+  useEffect(() => {
+    if (companionScene !== "celebrate" || runId || launching) return;
+    const timer = window.setTimeout(() => setCompanionScene(playing ? "dance" : "idle"), 3000);
+    return () => window.clearTimeout(timer);
+  }, [companionScene, runId, launching, playing]);
   useEffect(() => {
     if (song) player.mix(song.music.tracks, solo);
   }, [song, solo]);
@@ -147,6 +247,7 @@ function App() {
       return false;
     if (runId) await post("/runs/" + runId + "/cancel");
     events.current?.close();
+    stopWorkCues();
     activeRun.current = null;
     setRunId(null);
     return true;
@@ -162,8 +263,10 @@ function App() {
       setSolo(new Set());
       setHistory([]);
       setError("");
-      setAgentThought("Drop in a thought. I’ll turn it into a loop.");
-      setCompanionThinking(false);
+      stopWorkCues();
+      clearSpeechHold();
+      problemActive.current = false;
+      setPresetSpeech("Drop in a thought. I’ll turn it into a loop.");
       setCompanionScene("idle");
       songRef.current = next;
       const activity = await api("/songs/" + id + "/activity");
@@ -182,8 +285,10 @@ function App() {
       setSelected({ kind: "song" });
       setSolo(new Set());
       setError("");
-      setAgentThought("Drop in a thought. I’ll turn it into a loop.");
-      setCompanionThinking(false);
+      stopWorkCues();
+      clearSpeechHold();
+      problemActive.current = false;
+      setPresetSpeech("Drop in a thought. I’ll turn it into a loop.");
       setCompanionScene("idle");
       await refresh();
     } catch (e) {
@@ -247,24 +352,31 @@ function App() {
     if (activeRun.current !== id || songRef.current?.id !== snapshot.songId)
       return;
     if (snapshot.status === "completed") {
+      stopWorkCues();
       const next = await api("/songs/" + snapshot.songId);
       setSong(next);
       songRef.current = next;
       await refresh();
       setStatus("Updated");
-      setAgentThought("There it is—give it a listen!");
-      setCompanionThinking(false);
+      clearSpeechHold();
+      setPresetSpeech("There it is—give it a listen!");
+      problemActive.current = false;
       setCompanionScene("celebrate");
     } else if (snapshot.error) showError(new Error(snapshot.error.message));
     else {
       setStatus(snapshot.message ?? snapshot.status);
       if (snapshot.status === "cancelled") {
-        setAgentThought("Stopped. Ready when you are.");
-        setCompanionThinking(false);
+        stopWorkCues();
+        clearSpeechHold();
+        setPresetSpeech("Stopped. Ready when you are.");
+        problemActive.current = false;
         setCompanionScene("idle");
       } else if (snapshot.status === "failed") {
-        setCompanionThinking(true);
-        setCompanionScene("thinking");
+        stopWorkCues();
+        showProblem("thinking", "Something’s off. Let me check the signal…");
+      } else if (snapshot.status === "clarification_required") {
+        stopWorkCues();
+        showProblem("thinking", "I need a little more direction before I continue.");
       }
     }
     if (
@@ -281,6 +393,7 @@ function App() {
     }
   };
   const watchRun = (id: string) => {
+    if (cueTimer.current === null) startWorkCues("orchestration");
     setRunId(id);
     activeRun.current = id;
     const es = new EventSource("/api/runs/" + id + "/events");
@@ -299,14 +412,33 @@ function App() {
         ].includes(e.type)
       ) {
         void finishRun(id).catch(showError);
-      } else if (stageScenes[e.type]) {
-        const stage = stageScenes[e.type];
-        const thinking = e.type === "repairing" || e.type === "retrying";
-        setStatus(stage.label);
-        setCompanionThinking(thinking);
-        if (thinking) setCompanionScene("thinking");
-        setAgentThought(stage.speech);
-      } else if (!["model_usage", "model_stream", "model_started"].includes(e.type))
+      } else if (e.type === "model_started") {
+        const phase = modelPurposePhases[String(e.payload?.purpose ?? "")];
+        const callId = String(e.payload?.callId ?? "");
+        if (phase) {
+          if (callId) activeModelCalls.current.set(callId, phase);
+          if (problemActive.current) resumeWorkPhase(phase);
+          else selectWorkPhase(phase);
+        }
+      } else if (e.type === "model_usage") {
+        const callId = String(e.payload?.callId ?? "");
+        if (callId) activeModelCalls.current.delete(callId);
+        const remaining = Array.from(activeModelCalls.current.values()).at(-1);
+        if (remaining) selectWorkPhase(remaining);
+      } else if (e.type === "repairing" || e.type === "retrying") {
+        setStatus(stageLabels[e.type]);
+        showProblem(
+          "repairing",
+          e.type === "retrying"
+            ? "That one got tangled. Trying it again…"
+            : "Tuning up a tricky bit…",
+        );
+      } else if (stageLabels[e.type]) {
+        setStatus(stageLabels[e.type]);
+        if (e.type === "validating") selectWorkPhase("validation");
+        else if (e.type === "planning" || e.type === "arranging")
+          selectWorkPhase("orchestration");
+      } else if (!["model_stream"].includes(e.type))
         setStatus(e.type);
     };
     es.onerror = () => {
@@ -322,10 +454,9 @@ function App() {
     if (!song || !prompt.trim() || runId || launching || busy) return;
     setLaunching(true);
     setError("");
-    setCompanionThinking(false);
+    clearSpeechHold();
     setStatus("Reading music");
-    setCompanionScene("listening");
-    setAgentThought("Listening for the groove…");
+    startWorkCues("orchestration");
     try {
       await pendingCommand.current;
       if (commandFailed.current) throw new Error("Save the song settings successfully before composing.");
@@ -351,12 +482,14 @@ function App() {
     if (runId) {
       await post("/runs/" + runId + "/cancel");
       events.current?.close();
+      stopWorkCues();
       activeRun.current = null;
       setRunId(null);
       setStatus("Cancelled");
-      setCompanionThinking(false);
+      clearSpeechHold();
+      problemActive.current = false;
       setCompanionScene("idle");
-      setAgentThought("Stopped. Ready when you are.");
+      setPresetSpeech("Stopped. Ready when you are.");
     }
   };
   const download = async () => {
@@ -563,128 +696,9 @@ function App() {
                   {status}
                 </p>
               </div>
-              <details className="activity-drawer">
-                <summary>Activity & traces</summary>
-                <AgentMonitor
-                  key={song.id}
-                  songId={song.id}
-                  runId={runId}
-                  onSpeech={setAgentThought}
-                />
-              </details>
             </aside>
             <div className="studio">
               <section className="editor">
-                <details className="song-settings">
-                  <summary>Song settings & tools</summary>
-                  <div className="editor-toolbar">
-                    <button
-                      className={selected.kind === "song" ? "chosen" : ""}
-                      onClick={() => setSelected({ kind: "song" })}
-                    >
-                      Whole song
-                    </button>
-                    <label>
-                      Snap{" "}
-                      <select
-                        value={snap}
-                        onChange={(e) => setSnap(Number(e.target.value))}
-                      >
-                        {[
-                          [2, "1/8"],
-                          [3, "Triplet"],
-                          [4, "1/16"],
-                          [6, "Sixteenth triplet"],
-                          [8, "1/32"],
-                        ].map(([n, label]) => (
-                          <option key={n} value={n}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>Bars <select
-                      aria-label="Bars"
-                      value={song.music.bars}
-                      disabled={busy}
-                      onChange={(event) => {
-                        const bars = Number(event.target.value);
-                        void command({
-                          type: "resize_song",
-                          bars,
-                          trim:
-                            bars < song.music.bars
-                              ? confirm("Trim notes beyond the new song end?")
-                              : false,
-                        });
-                      }}
-                    >
-                      {Array.from({ length: 32 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>)}
-                    </select></label>
-                    <label>
-                      Key label{" "}
-                      <select
-                        value={song.music.key?.root ?? ""}
-                        onChange={(e) =>
-                          void command({
-                            type: "set_key",
-                            root: e.target.value,
-                            mode:
-                              song.music.key?.mode === "minor"
-                                ? "minor"
-                                : "major",
-                          })
-                        }
-                      >
-                        <option value="" disabled>
-                          Unset
-                        </option>
-                        {[
-                          "C",
-                          "C#",
-                          "D",
-                          "D#",
-                          "E",
-                          "F",
-                          "F#",
-                          "G",
-                          "G#",
-                          "A",
-                          "A#",
-                          "B",
-                        ].map((k) => (
-                          <option key={k}>{k}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <select
-                      aria-label="Key mode"
-                      value={song.music.key?.mode ?? "major"}
-                      onChange={(e) =>
-                        void command({
-                          type: "set_key",
-                          root: song.music.key?.root ?? "C",
-                          mode: e.target.value as "major" | "minor",
-                        })
-                      }
-                    >
-                      <option>major</option>
-                      <option>minor</option>
-                    </select>
-                    <button
-                      disabled={busy || song.music.tracks.length >= 8}
-                      onClick={() =>
-                        void command({
-                          type: "add_track",
-                          instrumentId: "bright_lead",
-                          name: "New lead",
-                        })
-                      }
-                    >
-                      ＋ Track
-                    </button>
-                  </div>
-                </details>
                 <div className="transport transport-row">
                   <div className="scope scope-inline" aria-label="Editing scope">
                     <span>Editing</span>
@@ -851,6 +865,134 @@ function App() {
                 )}
               </section>
             </div>
+            <div className="bottom-drawers">
+              <details className="song-settings">
+                <summary>Song settings & tools</summary>
+                <div className="editor-toolbar">
+                  <button
+                    className={selected.kind === "song" ? "chosen" : ""}
+                    onClick={() => setSelected({ kind: "song" })}
+                  >
+                    Whole song
+                  </button>
+                  <label>
+                    Snap{" "}
+                    <select
+                      value={snap}
+                      onChange={(e) => setSnap(Number(e.target.value))}
+                    >
+                      {[
+                        [2, "1/8"],
+                        [3, "Triplet"],
+                        [4, "1/16"],
+                        [6, "Sixteenth triplet"],
+                        [8, "1/32"],
+                      ].map(([n, label]) => (
+                        <option key={n} value={n}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Bars{" "}
+                    <select
+                      aria-label="Bars"
+                      value={song.music.bars}
+                      disabled={busy}
+                      onChange={(event) => {
+                        const bars = Number(event.target.value);
+                        void command({
+                          type: "resize_song",
+                          bars,
+                          trim:
+                            bars < song.music.bars
+                              ? confirm("Trim notes beyond the new song end?")
+                              : false,
+                        });
+                      }}
+                    >
+                      {Array.from({ length: 32 }, (_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          {i + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Key label{" "}
+                    <select
+                      value={song.music.key?.root ?? ""}
+                      onChange={(e) =>
+                        void command({
+                          type: "set_key",
+                          root: e.target.value,
+                          mode:
+                            song.music.key?.mode === "minor"
+                              ? "minor"
+                              : "major",
+                        })
+                      }
+                    >
+                      <option value="" disabled>
+                        Unset
+                      </option>
+                      {[
+                        "C",
+                        "C#",
+                        "D",
+                        "D#",
+                        "E",
+                        "F",
+                        "F#",
+                        "G",
+                        "G#",
+                        "A",
+                        "A#",
+                        "B",
+                      ].map((k) => (
+                        <option key={k}>{k}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <select
+                    aria-label="Key mode"
+                    value={song.music.key?.mode ?? "major"}
+                    onChange={(e) =>
+                      void command({
+                        type: "set_key",
+                        root: song.music.key?.root ?? "C",
+                        mode: e.target.value as "major" | "minor",
+                      })
+                    }
+                  >
+                    <option>major</option>
+                    <option>minor</option>
+                  </select>
+                  <button
+                    disabled={busy || song.music.tracks.length >= 8}
+                    onClick={() =>
+                      void command({
+                        type: "add_track",
+                        instrumentId: "bright_lead",
+                        name: "New lead",
+                      })
+                    }
+                  >
+                    ＋ Track
+                  </button>
+                </div>
+              </details>
+              <details className="activity-drawer">
+                <summary>Activity & traces</summary>
+                <AgentMonitor
+                  key={song.id}
+                  songId={song.id}
+                  runId={runId}
+                  onModelSpeech={setModelSpeech}
+                />
+              </details>
+            </div>
           </>
         ) : (
           <div className="empty">
@@ -903,7 +1045,7 @@ function Cassette({ state, disabled, onClick }: { state: "idle" | "working" | "r
 function PixelCompanion({ scene }: { scene: CompanionScene }) {
   return (
     <svg
-      className={"companion companion-" + scene}
+      className={`companion companion-${scene} stage-${scene}`}
       viewBox="0 0 48 40"
       role="img"
       aria-label={"Composer " + scene}
@@ -943,6 +1085,9 @@ function PixelCompanion({ scene }: { scene: CompanionScene }) {
         <path d="M34 28h2v2h-2zM8 32h2v1H8z" fill="#65d1c5" />
         <path className="scratch-hand" d="M12 23h3v2h7v3h-9v-2h-1z" fill="currentColor" stroke="#171a26" strokeWidth="0.7" />
         <path className="mixer-hand" d="M36 24h-3v3h-2v2h6v-3h-1z" fill="currentColor" stroke="#171a26" strokeWidth="0.7" />
+        <path className="channel-light light-a" d="M30 32h2v2h-2z" fill="#65d1c5" />
+        <path className="channel-light light-b" d="M34 32h2v2h-2z" fill="#f0d987" />
+        <path className="channel-light light-c" d="M38 32h2v2h-2z" fill="#ef8587" />
       </g>
       <g className="guitar-prop">
         <path d="M16 22h4l3 3 14-12 3 3-14 12v5l-4 4h-8l-4-4v-7l3-3z" fill="#d6a06f" stroke="#171a26" />
@@ -957,6 +1102,10 @@ function PixelCompanion({ scene }: { scene: CompanionScene }) {
         <rect x="38" y="6" width="2" height="3" />
         <rect x="36" y="9" width="3" height="2" />
         <rect x="36" y="12" width="2" height="2" />
+      </g>
+      <g className="repair-prop">
+        <path d="M35 20h3v4h3v-4h3v7h-3v9h-4v-9h-2z" fill="#c7d2d8" stroke="#171a26" strokeWidth="1" />
+        <path d="M34 29h7v3h-7z" fill="currentColor" />
       </g>
       <g className="sparkles" fill="#f0d987">
         <path className="sparkle sparkle-one" d="M9 8h2v3h3v2h-3v3H9v-3H6v-2h3z" />

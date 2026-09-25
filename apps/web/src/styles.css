@@ -930,6 +930,7 @@ summary:focus-visible {
   fill: #0a0e16;
 }
 .headphones,
+.repair-prop,
 .keyboard-prop,
 .music-notes,
 .dj-prop,
@@ -992,6 +993,17 @@ summary:focus-visible {
 .companion-dj .dj-prop {
   display: block;
 }
+.companion-dj .channel-light { animation: channel-blink 0.8s steps(2, end) infinite alternate; }
+.companion-dj .light-b { animation-delay: -0.3s; }
+.companion-dj .light-c { animation-delay: -0.6s; }
+.stage-rhythm .scratch-hand { animation: rhythm-scratch 0.3s steps(3, end) infinite alternate; }
+.stage-rhythm .mixer-hand { animation: hand-play 0.3s steps(2, end) infinite alternate; }
+.stage-validating .headphone-cup { animation: headphone-pulse 0.45s steps(2, end) infinite alternate; }
+.stage-validating .right-cup { animation-delay: -0.45s; }
+.stage-repairing .repair-prop { display: block; transform-origin: 39px 31px; animation: wrench-turn 0.8s steps(2, end) infinite alternate; }
+@keyframes channel-blink { to { opacity: 0.25; } }
+@keyframes rhythm-scratch { to { transform: translate(4px, -1px); } }
+@keyframes wrench-turn { to { transform: rotate(-12deg); } }
 .companion-dj .record {
   transform-origin: 35px 31px;
   animation: record-spin 1.2s steps(8, end) infinite;
@@ -1336,6 +1348,21 @@ summary:focus-visible {
 .studio {
   padding-top: 8px;
 }
+.bottom-drawers {
+  display: grid;
+  gap: 4px;
+  padding: 0 0 48px;
+}
+.bottom-drawers > details {
+  border-top: 1px solid var(--line);
+  padding: 0;
+}
+.bottom-drawers .song-settings {
+  margin-bottom: 0;
+}
+.bottom-drawers .activity-drawer {
+  border-bottom: 1px solid var(--line);
+}
 
 @media (max-width: 900px) {
   .topbar {
@@ -1391,6 +1418,24 @@ summary:focus-visible {
   .topbar-companion .sprite-speech {
     min-height: 64px;
     font-size: 11px;
+  }
+}
+
+/* Give streamed model summaries room to be read. */
+@media (min-width: 901px) {
+  .topbar-companion {
+    width: min(780px, calc(100% - 250px));
+    flex: 1 1 auto;
+  }
+  .topbar-companion .companion-console {
+    max-width: none;
+  }
+  .topbar-companion .sprite-speech {
+    min-height: 94px;
+    -webkit-line-clamp: 5;
+    padding: 15px 18px;
+    font-size: 12px;
+    line-height: 1.5;
   }
 }
 
