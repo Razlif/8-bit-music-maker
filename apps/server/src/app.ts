@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import OpenAI, { toFile } from "openai";
 import path from "node:path";
 import fs from "node:fs";
 import { z } from "zod";
@@ -11,8 +12,13 @@ import {
   type Candidate,
 } from "@eight-bit/core";
 import { Library, type SaveResult } from "./library.js";
-import { runAgent, type ModelAdapter } from "./agent.js";
+import { createModelAdapter, runAgent, type ModelAdapter } from "./agent.js";
 import { getConfig, type Config } from "./config.js";
+import {
+  EffectRecipeSchema,
+  exampleEffectRecipe,
+  validateEffectRecipe,
+} from "./effects.js";
 
 const SelectionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("song") }).strict(),
@@ -100,6 +106,15 @@ export async function createApp(
   const app = Fastify({ logger: false, bodyLimit: 2 * 1024 * 1024 }),
     library = new Library(config.songsDir),
     runs = new Map<string, Run>();
+  const effectAdapter =
+    adapter?.effect ? adapter : config.openaiKey ? createModelAdapter() : undefined;
+  const transcriptionClient = config.openaiKey
+    ? new OpenAI({
+        apiKey: config.openaiKey,
+        maxRetries: 0,
+        timeout: config.runTimeoutMs,
+      })
+    : undefined;
   let closing = false;
   await library.init();
   try {
@@ -149,6 +164,63 @@ export async function createApp(
     ok: true,
     agent: !!config.openaiKey || !!adapter,
   }));
+  app.post("/api/effects/recipe", async (req) => {
+    const { instruction } = z
+      .object({ instruction: z.string().trim().min(1).max(2000) })
+      .strict()
+      .parse(req.body);
+    if (!effectAdapter?.effect)
+      return {
+        recipe: validateEffectRecipe(exampleEffectRecipe(instruction)),
+        source: "example",
+      };
+    const controller = new AbortController();
+    // `close` fires when a normal incoming request stream finishes on Node,
+    // which would cancel every model call immediately after the body parses.
+    // `aborted` is the client-disconnect signal we actually want here.
+    const onAborted = () => controller.abort();
+    req.raw.once("aborted", onAborted);
+    try {
+      const recipe = validateEffectRecipe(
+        EffectRecipeSchema.parse(
+          await effectAdapter.effect(instruction, controller.signal),
+        ),
+      );
+      return { recipe, source: "ai" };
+    } finally {
+      req.raw.off("aborted", onAborted);
+    }
+  });
+  app.post("/api/transcribe", async (req, reply) => {
+    const { audioBase64, mimeType } = z
+      .object({
+        audioBase64: z.string().min(1).max(2_000_000),
+        mimeType: z.string().min(1).max(80),
+      })
+      .strict()
+      .parse(req.body);
+    if (!transcriptionClient)
+      return reply.code(422).send({
+        code: "MISSING_API_KEY",
+        message: "Add OPENAI_API_KEY to enable microphone transcription.",
+      });
+    const extension = mimeType.includes("ogg")
+      ? "ogg"
+      : mimeType.includes("mp4")
+        ? "mp4"
+        : "webm";
+    const file = await toFile(
+      Buffer.from(audioBase64, "base64"),
+      `dictation.${extension}`,
+      { type: mimeType },
+    );
+    const result = await transcriptionClient.audio.transcriptions.create({
+      file,
+      model: "whisper-1",
+      response_format: "json",
+    });
+    return { text: result.text };
+  });
   app.get("/api/songs", async () => library.list());
   app.post("/api/songs", async (req) =>
     library.create(

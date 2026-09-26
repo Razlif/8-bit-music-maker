@@ -173,8 +173,8 @@ export function newSong(id: string, now = new Date().toISOString()): Song {
       bars: 4,
       key: null,
       tracks: [
-        track("track-lead", "Soft Lead", "soft_lead"),
-        track("track-bass", "Chip Bass", "chip_bass"),
+        track("track-lead", "Lead", "soft_lead"),
+        track("track-bass", "Bass", "chip_bass"),
         track("track-kick", "Kick", "kick"),
         track("track-hat", "Hi-Hat", "closed_hat"),
         track("track-snare", "Snare", "snare"),

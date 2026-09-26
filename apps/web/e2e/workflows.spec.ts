@@ -11,8 +11,9 @@ test("manual notes, selections, mixer, export and reload without API credentials
     page.getByRole("heading", { name: "Untitled Loop" }),
   ).toBeVisible();
   await page.locator(".library-drawer > summary").click();
-  page.once("dialog", (dialog) => dialog.accept("Manual regression"));
   await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.getByLabel("Song title").fill("Manual regression");
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Manual regression" }),
   ).toBeVisible();

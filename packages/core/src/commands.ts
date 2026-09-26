@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { add, cmp, frac, type Fraction } from "./fractions.js";
 import { midiToPitch, pitchToMidi, INSTRUMENTS } from "./instruments.js";
-import { FractionSchema, validateSong, type Song } from "./schema.js";
+import { FractionSchema, validateSong, newSong, type Song } from "./schema.js";
 import { serializeNotation } from "./notation.js";
 const id = z.string().min(1);
 export const CommandSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("reset_song") }).strict(),
   z
     .object({
       type: z.literal("set_mix"),
@@ -38,6 +39,7 @@ export const CommandSchema = z.discriminatedUnion("type", [
       type: z.literal("add_track"),
       instrumentId: id,
       name: z.string().min(1).max(120),
+      trackType: z.enum(["melodic", "harmonic"]),
     })
     .strict(),
   z.object({ type: z.literal("remove_track"), trackId: id }).strict(),
@@ -95,6 +97,10 @@ export function applyCommand(song: Song, input: unknown): Song {
     return n;
   };
   switch (command.type) {
+    case "reset_song":
+      next.music = newSong(next.id).music;
+      next.brief = "";
+      break;
     case "set_mix":
       Object.assign(track(command.trackId), {
         volumeDb: command.volumeDb,
@@ -135,7 +141,7 @@ export function applyCommand(song: Song, input: unknown): Song {
       next.music.tracks.push({
         id: crypto.randomUUID(),
         name: command.name,
-        type: "melodic",
+        type: command.trackType,
         instrumentId: command.instrumentId,
         instrumentVersion: 1,
         volumeDb: -12,
@@ -150,10 +156,28 @@ export function applyCommand(song: Song, input: unknown): Song {
       );
       break;
     case "edit_track":
-      Object.assign(track(command.trackId), {
+      {
+        const target = INSTRUMENTS[command.instrumentId];
+        if (!target) throw new Error("UNKNOWN_INSTRUMENT");
+        const current = track(command.trackId);
+        if (current.type === "harmonic" && target.kind !== "pitched")
+          throw new Error("HARMONIC_TRACK_REQUIRES_PITCHED_INSTRUMENT");
+        for (const note of current.notes) {
+          if (note.kind === "hit" && target.kind !== "hit")
+            throw new Error("INSTRUMENT_SWAP_WOULD_INVALIDATE_HITS");
+          if (note.kind === "pitched" && target.kind !== "pitched")
+            throw new Error("INSTRUMENT_SWAP_WOULD_INVALIDATE_NOTES");
+          if (note.kind === "pitched") {
+            const midi = pitchToMidi(note.pitch);
+            if (midi !== null && (midi < target.minMidi! || midi > target.maxMidi!))
+              throw new Error("INSTRUMENT_SWAP_OUT_OF_RANGE");
+          }
+        }
+        Object.assign(current, {
         name: command.name,
         instrumentId: command.instrumentId,
-      });
+        });
+      }
       break;
     case "add_note": {
       const t = track(command.trackId),

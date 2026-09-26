@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("shows a historical failure and readable prompts without confusing editor status", async ({
+test("does not expose the diagnostic drawer in the editor", async ({
   page,
 }) => {
   const id = "recorded-run";
@@ -44,20 +44,9 @@ test("shows a historical failure and readable prompts without confusing editor s
   await page.goto("/");
   await page.locator(".library-drawer > summary").click();
   await page.getByRole("button", { name: "＋ New song", exact: true }).click();
-  await page.locator(".activity-drawer > summary").click();
-  const monitor = page.getByRole("region", { name: "AI run monitor" });
-  await expect(monitor).toContainText("failed · failed · 180s elapsed");
-  await monitor
-    .getByText("Inspect prompts and run trace", { exact: true })
-    .click();
-  await monitor.getByText(/model_request · music_candidate/).click();
-  await expect(
-    monitor.getByText("EDIT_TASK\nCompose a funky bass line", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    monitor.getByRole("link", { name: "Open full trace JSON" }),
-  ).toHaveAttribute("href", /recorded-run\/trace$/);
-  await expect(monitor).toContainText("RUN_TIMEOUT");
+  await expect(page.getByText("Activity & traces", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "AI run monitor" })).toHaveCount(0);
+  await expect(page.locator(".agent-monitor-hidden")).toHaveCount(1);
 });
 
 test("receives live reasoning summaries over SSE before a proposal exists", async ({
@@ -109,12 +98,9 @@ test("receives live reasoning summaries over SSE before a proposal exists", asyn
   );
   await page.getByLabel("Composer request").fill("Simple groove");
   await page.getByRole("button", { name: "Compose ↗" }).click();
-  await page.locator(".activity-drawer > summary").click();
-  const monitor = page.getByRole("region", { name: "AI run monitor" });
-  await expect(monitor).toContainText(
+  await expect(page.locator(".sprite-speech")).toContainText(
     "I am placing the bass between the kick beats.",
   );
-  await expect(monitor).toContainText("19 output characters received");
   await expect(
     page.getByRole("button", { name: "Cancel request", exact: true }),
   ).toBeVisible();

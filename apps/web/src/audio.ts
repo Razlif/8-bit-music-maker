@@ -1,6 +1,33 @@
 import * as Tone from "tone";
 import { value, type Song, type Track } from "@eight-bit/core";
 import { createInstrumentVoice } from "./instrument-voices.js";
+
+/** A tiny mechanical tape-start sound for the primary compose action. */
+export async function playCassetteClick(): Promise<void> {
+  try {
+    await Tone.start();
+    // Keep the tape button feedback in the same sonic family as a closed
+    // hi-hat: a quiet, high-passed mechanical tick rather than a pitched hit.
+    const output = new Tone.Gain(0.22).toDestination();
+    const filter = new Tone.Filter(7200, "highpass").connect(output);
+    const voice = new Tone.NoiseSynth({
+      noise: { type: "white" },
+      envelope: { attack: 0.001, decay: 0.025, sustain: 0, release: 0.008 },
+    }).connect(filter);
+    const now = Tone.now();
+    voice.triggerAttackRelease(0.035, now, 0.42);
+    voice.triggerAttackRelease(0.022, now + 0.04, 0.18);
+    window.setTimeout(() => {
+      voice.dispose();
+      filter.dispose();
+      output.dispose();
+    }, 160);
+  } catch {
+    // Audio is optional UI feedback; browser autoplay restrictions must not
+    // prevent a composition request from being sent.
+  }
+}
+
 function session(song: Song, analyse = false) {
   const limiter = new Tone.Limiter(-1).toDestination(),
     master = new Tone.Gain(0.35).connect(limiter);

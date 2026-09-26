@@ -5,10 +5,12 @@ export function AgentMonitor({
   songId,
   runId,
   onModelSpeech,
+  hidden = false,
 }: {
   songId: string;
   runId: string | null;
   onModelSpeech?: (text: string) => void;
+  hidden?: boolean;
 }) {
   const [runs, setRuns] = useState<any[]>([]);
   const [selected, setSelected] = useState("");
@@ -134,7 +136,11 @@ export function AgentMonitor({
     ? Math.max(0, Math.round((end - Date.parse(trace.startedAt)) / 1000))
     : null;
   return (
-    <section className="agent-monitor" aria-label="AI run monitor">
+    <section
+      className={"agent-monitor" + (hidden ? " agent-monitor-hidden" : "")}
+      aria-label="AI run monitor"
+      hidden={hidden}
+    >
       <strong>AI activity</strong>
       {trace?.passage && (
         <div>

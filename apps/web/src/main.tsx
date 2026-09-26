@@ -14,9 +14,11 @@ import {
   type Track,
   type MusicCommand,
 } from "@eight-bit/core";
-import { Player, exportWav } from "./audio";
+import { Player, exportWav, playCassetteClick } from "./audio";
 import "./styles.css";
 import { AgentMonitor } from "./AgentMonitor";
+import { DictationButton } from "./DictationButton";
+import { EffectsMaker } from "./EffectsMaker";
 
 export const api = async (path: string, init?: RequestInit) => {
   const r = await fetch("/api" + path, {
@@ -36,6 +38,11 @@ type Summary = {
   available: boolean;
   error?: string;
   history?: string;
+};
+type TrackDraft = {
+  name: string;
+  instrumentId: string;
+  trackType: "melodic" | "harmonic";
 };
 const player = new Player();
 type CompanionScene = "idle" | "keyboard" | "dj" | "thinking" | "celebrate" | "dance" | "repairing";
@@ -80,6 +87,8 @@ const modelPurposePhases: Record<string, WorkPhase> = {
   music_candidate: "pitch",
 };
 function App() {
+  const [mode, setMode] = useState<"music" | "effects">("music");
+  const [effectActivity, setEffectActivity] = useState<{ scene: CompanionScene; speech: string }>({ scene: "idle", speech: "Let’s make a little sound." });
   const [exporting, setExporting] = useState(false);
   const [songs, setSongs] = useState<Summary[]>([]),
     [song, setSong] = useState<Song | null>(null),
@@ -93,6 +102,9 @@ function App() {
     [playing, setPlaying] = useState(false),
     [beat, setBeat] = useState(0),
     [solo, setSolo] = useState<Set<string>>(new Set());
+  const [trackDraft, setTrackDraft] = useState<TrackDraft | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false),
+    [renameValue, setRenameValue] = useState("");
   const [agent, setAgent] = useState(false),
     [runId, setRunId] = useState<string | null>(null),
     [launching, setLaunching] = useState(false),
@@ -238,6 +250,9 @@ function App() {
     if (!runId && !launching) setCompanionScene("idle");
   };
   const guardSwitch = async () => {
+    // A song switch must not race a local-folder save. Commands are serialized
+    // by `command`, so wait for the current one before changing the active id.
+    if (pendingCommand.current) await pendingCommand.current;
     if (!runId) return true;
     if (
       !confirm(
@@ -263,6 +278,8 @@ function App() {
       setSolo(new Set());
       setHistory([]);
       setError("");
+      setRenameOpen(false);
+      setStatus("Loaded · revision " + next.revision);
       stopWorkCues();
       clearSpeechHold();
       problemActive.current = false;
@@ -284,12 +301,16 @@ function App() {
       setTrackId(next.music.tracks[0]?.id ?? "");
       setSelected({ kind: "song" });
       setSolo(new Set());
+      setHistory([]);
       setError("");
+      setRenameOpen(false);
+      setStatus("New song ready");
       stopWorkCues();
       clearSpeechHold();
       problemActive.current = false;
       setPresetSpeech("Drop in a thought. I’ll turn it into a loop.");
       setCompanionScene("idle");
+      songRef.current = next;
       await refresh();
     } catch (e) {
       showError(e);
@@ -329,6 +350,22 @@ function App() {
     const pending = save().finally(() => { pendingCommand.current = null; });
     pendingCommand.current = pending;
     return pending;
+  };
+  const openTrackCreator = () =>
+    setTrackDraft({
+      name: "New lead",
+      instrumentId: "soft_lead",
+      trackType: "melodic",
+    });
+  const createTrack = async () => {
+    if (!trackDraft?.name.trim()) return;
+    await command({
+      type: "add_track",
+      instrumentId: trackDraft.instrumentId,
+      name: trackDraft.name.trim(),
+      trackType: trackDraft.trackType,
+    });
+    setTrackDraft(null);
   };
   const play = async (selectionOnly = false) => {
     if (!song) return;
@@ -519,6 +556,13 @@ function App() {
   const current = song,
     track = current?.music.tracks.find((t) => t.id === trackId),
     selectedIds = selected.kind === "notes" ? selected.noteIds : [];
+  const libraryStatus = busy
+    ? exporting
+      ? "Exporting…"
+      : "Saving…"
+    : error
+      ? "Needs attention"
+      : status;
   return (
     <div className="app">
       <details className="library-drawer">
@@ -532,24 +576,38 @@ function App() {
               event.currentTarget.closest("details")?.removeAttribute("open");
           }}
         >
-          <div className="brand">
+          <div className="library-heading">
+            <div className="brand">
             <span className="pixel">♪</span>
             <div>
               <strong>CHIP//STUDIO</strong>
               <small>shape a little world of sound</small>
             </div>
+            </div>
+            <span className="library-label">SONG FILES</span>
           </div>
-          <button className="new" onClick={create}>
+          <button className="new" disabled={busy} onClick={() => void create()}>
             ＋ New song
           </button>
-          <div className="song-list">
-            {songs.map((s) => (
+          <div className="library-status" role="status" aria-live="polite">
+            <span className={"status-dot " + (error ? "error" : busy ? "busy" : "saved")} />
+            <span>
+              <small>Save status</small>
+              <strong>{libraryStatus}</strong>
+            </span>
+          </div>
+          <div className="song-list" aria-label="Saved songs">
+            {songs.length ? songs.map((s) => (
               <button
                 key={s.id}
+                type="button"
                 className={"song " + (song?.id === s.id ? "active" : "")}
-                onClick={() => s.available && open(s.id)}
+                disabled={!s.available || busy}
+                aria-label={s.available ? "Load " + s.title : s.title + " unavailable"}
+                title={s.available ? "Load song" : s.error}
+                onClick={() => s.available && void open(s.id)}
               >
-                <span>{s.available ? "◉" : "⚠"}</span>
+                <span className="song-state">{s.available ? "◉" : "⚠"}</span>
                 <span>
                   <b>{s.title}</b>
                   <small>
@@ -558,33 +616,85 @@ function App() {
                   {s.history === "pending" && <small>History pending</small>}
                 </span>
               </button>
-            ))}
+            )) : (
+              <div className="library-empty">
+                <strong>No songs yet.</strong>
+                <span>Create a loop to start a local song file.</span>
+              </div>
+            )}
           </div>
           {song && (
             <div className="library-tools">
+              <div className="library-current">
+                <span>
+                  <small>OPEN SONG</small>
+                  <strong>{song.title}</strong>
+                </span>
+                <code>r{song.revision}</code>
+              </div>
+              {renameOpen ? (
+                <form
+                  className="rename-form"
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    const title = renameValue.trim();
+                    if (!title) return;
+                    await command({ type: "rename", title });
+                    if (!commandFailed.current) setRenameOpen(false);
+                  }}
+                >
+                  <label htmlFor="song-rename">Song title</label>
+                  <input
+                    id="song-rename"
+                    value={renameValue}
+                    disabled={busy}
+                    onChange={(event) => setRenameValue(event.target.value)}
+                    autoFocus
+                  />
+                  <div>
+                    <button type="button" disabled={busy} onClick={() => setRenameOpen(false)}>
+                      Cancel
+                    </button>
+                    <button className="primary" type="submit" disabled={busy || !renameValue.trim()}>
+                      Save name
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setRenameValue(song.title);
+                    setRenameOpen(true);
+                  }}
+                >
+                  Rename
+                </button>
+              )}
               <button
-                onClick={() => {
-                  const title = window.prompt("Song title", song.title);
-                  if (title) void command({ type: "rename", title });
-                }}
-              >
-                Rename
-              </button>
-              <button
+                type="button"
+                disabled={busy}
                 onClick={async () => {
                   try {
                     if (!(await guardSwitch())) return;
+                    setBusy(true);
+                    setStatus("Duplicating…");
                     const next = await post("/songs/" + song.id + "/duplicate");
                     await refresh();
                     await open(next.id);
                   } catch (e) {
                     showError(e);
+                  } finally {
+                    setBusy(false);
                   }
                 }}
               >
                 Duplicate
               </button>
               <button
+                type="button"
+                disabled={busy}
                 onClick={() =>
                   api("/songs/" + song.id + "/history")
                     .then(setHistory)
@@ -594,6 +704,8 @@ function App() {
                 History / undo
               </button>
               <button
+                type="button"
+                disabled={busy}
                 onClick={() =>
                   post("/songs/" + song.id + "/history/retry")
                     .then((r) => {
@@ -616,7 +728,13 @@ function App() {
                         expectedRevision: song.revision,
                       });
                       setSong(r.song);
+                      songRef.current = r.song;
                       setHistory([]);
+                      setStatus(
+                        r.history === "pending"
+                          ? "Restored · history pending"
+                          : "Restored · revision " + r.song.revision,
+                      );
                       stop();
                       await refresh();
                     } catch (e) {
@@ -630,27 +748,47 @@ function App() {
             </div>
           )}
           <small className="local-note">
-            Local files. Your music stays here.
+            Local files, Git-backed history.
             <br />
-            Each request starts fresh.
+            Switching waits for saves.
           </small>
         </aside>
       </details>
       <main className="main">
         <header className="topbar">
-          {song && <div className="topbar-companion">
+          {(mode === "effects" || song) && <div className="topbar-companion">
             <CompanionConsole
-              scene={companionScene}
-              speech={error || agentThought || status}
+              scene={mode === "effects" ? effectActivity.scene : companionScene}
+              speech={mode === "effects" ? effectActivity.speech : error || agentThought || status}
             />
           </div>}
           <div className="topbar-title">
             <span className="eyebrow">
-              CHIP//STUDIO · LOCAL
+              {mode === "effects" ? "SFX//LAB · LOCAL" : "CHIP//STUDIO · LOCAL"}
             </span>
-            <h1>{song?.title ?? "Your next little anthem"}</h1>
+            <h1>{mode === "effects" ? "Effect Maker" : song ? <EditableLabel value={song.title} label="Song title" disabled={busy} onSave={(title) => void command({ type: "rename", title })} /> : "Your next little anthem"}</h1>
           </div>
+          <nav className="mode-tabs" aria-label="Studio mode">
+            <button
+              type="button"
+              className={mode === "music" ? "active" : ""}
+              onClick={() => setMode("music")}
+            >
+              Music Maker
+            </button>
+            <button
+              type="button"
+              className={mode === "effects" ? "active" : ""}
+              onClick={() => setMode("effects")}
+            >
+              Effects Maker
+            </button>
+          </nav>
         </header>
+        {mode === "effects" ? (
+          <EffectsMaker onActivity={setEffectActivity} />
+        ) : (
+          <>
         {error && (
           <div role="alert" className="error">
             {error}
@@ -666,7 +804,7 @@ function App() {
                   restart. Manual editing and playback work without a key.
                 </p>
               )}
-              <div className="request-line">
+                <div className="request-line">
                 <textarea
                   aria-label="Composer request"
                   value={prompt}
@@ -679,20 +817,18 @@ function App() {
                   placeholder="Make the bass bounce. Give the melody a little mystery…"
                 />
                 <div className="request-action">
+                  <DictationButton
+                    value={prompt}
+                    onChange={setPrompt}
+                    disabled={!!runId || launching || busy}
+                  />
                   <Cassette
-                    state={error ? "error" : runId || launching ? "working" : "idle"}
-                    disabled={!agent || !!runId || launching || busy || !prompt.trim()}
-                    onClick={send}
+                    state={runId || launching ? "working" : error ? "error" : "idle"}
+                    disabled={runId ? false : !agent || launching || busy || !prompt.trim()}
+                    onClick={runId ? () => void cancel().catch(showError) : send}
                   />
                 </div>
               </div>
-              {runId && (
-                <div className="composer-footer">
-                  <button onClick={() => cancel().catch(showError)}>
-                    Cancel request
-                  </button>
-                </div>
-              )}
             </aside>
             <div className="studio">
               <section className="editor">
@@ -732,7 +868,140 @@ function App() {
                     </svg>
                     <span>{exporting ? "Writing…" : "WAV"}</span>
                   </button>
+                  <label className="transport-control">
+                    Bars
+                    <select
+                      aria-label="Bars"
+                      value={song.music.bars}
+                      disabled={busy}
+                      onChange={(event) => {
+                        const bars = Number(event.target.value);
+                        void command({
+                          type: "resize_song",
+                          bars,
+                          trim:
+                            bars < song.music.bars
+                              ? confirm("Trim notes beyond the new song end?")
+                              : false,
+                        });
+                      }}
+                    >
+                      {Array.from({ length: 32 }, (_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          {i + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="transport-control">
+                    Snap
+                    <select
+                      aria-label="Snap"
+                      value={snap}
+                      onChange={(e) => setSnap(Number(e.target.value))}
+                    >
+                      {[
+                        [2, "1/8"],
+                        [3, "Triplet"],
+                        [4, "1/16"],
+                        [6, "Sixteenth triplet"],
+                        [8, "1/32"],
+                      ].map(([n, label]) => (
+                        <option key={n} value={n}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    disabled={busy || song.music.tracks.length >= 8}
+                    onClick={openTrackCreator}
+                  >
+                    ＋ Track
+                  </button>
+                  <a className="tool-link" href="/instrument-lab.html" target="_blank" rel="noreferrer">
+                    ♫ Instrument Lab
+                  </a>
+                  <button disabled={busy || !!runId || launching} onClick={async () => {
+                    if (!window.confirm("Reset this song to six empty default tracks, 4 bars and 120 BPM? The title stays; the previous version remains in Git history.")) return;
+                    stop();
+                    await command({ type: "reset_song" });
+                    setSelected({ kind: "song" });
+                    setTrackId("track-lead");
+                    setTrackDraft(null);
+                    setPrompt("");
+                  }}>Reset song</button>
                 </div>
+                {trackDraft && (
+                  <div className="track-creator" role="dialog" aria-label="Add track">
+                    <div className="track-creator-heading">
+                      <strong>New track</strong>
+                      <button type="button" aria-label="Close track creator" onClick={() => setTrackDraft(null)}>×</button>
+                    </div>
+                    <label>
+                      Track name
+                      <input
+                        aria-label="Track name"
+                        value={trackDraft.name}
+                        onChange={(event) => setTrackDraft({ ...trackDraft, name: event.target.value })}
+                        autoFocus
+                      />
+                    </label>
+                    <label>
+                      Type
+                      <select
+                        aria-label="New track type"
+                        value={trackDraft.trackType}
+                        onChange={(event) => {
+                          const trackType = event.target.value as TrackDraft["trackType"];
+                          const currentInstrument = INSTRUMENTS[trackDraft.instrumentId];
+                          setTrackDraft({
+                            ...trackDraft,
+                            trackType,
+                            instrumentId:
+                              trackType === "harmonic" && currentInstrument.kind === "hit"
+                                ? "chip_pad"
+                                : trackDraft.instrumentId,
+                          });
+                        }}
+                      >
+                        <option value="melodic">Melodic line</option>
+                        <option value="harmonic">Harmony chords</option>
+                      </select>
+                    </label>
+                    <label>
+                      Instrument
+                      <select
+                        aria-label="New track instrument"
+                        value={trackDraft.instrumentId}
+                        onChange={(event) => setTrackDraft({ ...trackDraft, instrumentId: event.target.value })}
+                      >
+                        {Object.values(INSTRUMENTS)
+                          .filter((instrument) =>
+                            instrument.availability !== "candidate" &&
+                            instrument.availability !== "retired" &&
+                            (trackDraft.trackType === "melodic" || instrument.kind === "pitched"),
+                          )
+                          .map((instrument) => (
+                            <option key={instrument.id} value={instrument.id}>
+                              {instrument.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <div className="track-creator-actions">
+                      <button type="button" onClick={() => setTrackDraft(null)}>Cancel</button>
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={busy || !trackDraft.name.trim()}
+                        onClick={() => void createTrack().catch(showError)}
+                      >
+                        Create track
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <Timeline
                   song={current}
                   selection={selected}
@@ -756,7 +1025,7 @@ function App() {
                       ),
                       solo,
                     );
-                    if (persist)
+                   if (persist)
                       void command({
                         type: "set_mix",
                         trackId: t.id,
@@ -764,6 +1033,15 @@ function App() {
                         muted,
                       });
                   }}
+                  changeInstrument={(t, instrumentId) =>
+                    void command({
+                      type: "edit_track",
+                      trackId: t.id,
+                      name: t.name,
+                      instrumentId,
+                    })
+                  }
+                  renameTrack={(t, name) => void command({ type: "edit_track", trackId: t.id, name, instrumentId: t.instrumentId })}
                 />
                 {track && (
                   <details className="note-drawer">
@@ -772,30 +1050,6 @@ function App() {
                     </summary>
                     <div className="editor-toolbar">
                       <strong>{track.name}</strong>
-                      <select
-                        aria-label="Instrument preset"
-                        value={track.instrumentId}
-                        disabled={busy}
-                        onChange={(e) =>
-                          void command({
-                            type: "edit_track",
-                            trackId: track.id,
-                            name: track.name,
-                            instrumentId: e.target.value,
-                          })
-                        }
-                      >
-                        {Object.values(INSTRUMENTS)
-                          .filter((i) =>
-                            (i.availability !== "candidate" && i.availability !== "retired") ||
-                            i.id === track.instrumentId,
-                          )
-                          .map((i) => (
-                          <option key={i.id} value={i.id}>
-                            {i.name}{i.availability === "retired" ? " (retired)" : ""}
-                          </option>
-                          ))}
-                      </select>
                       <button
                         disabled={busy}
                         onClick={() => {
@@ -867,137 +1121,13 @@ function App() {
                 )}
               </section>
             </div>
-            <div className="bottom-drawers">
-              <details className="song-settings">
-                <summary>Song settings & tools</summary>
-                <div className="editor-toolbar">
-                  <button
-                    className={selected.kind === "song" ? "chosen" : ""}
-                    onClick={() => setSelected({ kind: "song" })}
-                  >
-                    Whole song
-                  </button>
-                  <label>
-                    Snap{" "}
-                    <select
-                      value={snap}
-                      onChange={(e) => setSnap(Number(e.target.value))}
-                    >
-                      {[
-                        [2, "1/8"],
-                        [3, "Triplet"],
-                        [4, "1/16"],
-                        [6, "Sixteenth triplet"],
-                        [8, "1/32"],
-                      ].map(([n, label]) => (
-                        <option key={n} value={n}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Bars{" "}
-                    <select
-                      aria-label="Bars"
-                      value={song.music.bars}
-                      disabled={busy}
-                      onChange={(event) => {
-                        const bars = Number(event.target.value);
-                        void command({
-                          type: "resize_song",
-                          bars,
-                          trim:
-                            bars < song.music.bars
-                              ? confirm("Trim notes beyond the new song end?")
-                              : false,
-                        });
-                      }}
-                    >
-                      {Array.from({ length: 32 }, (_, i) => (
-                        <option key={i + 1} value={i + 1}>
-                          {i + 1}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Key label{" "}
-                    <select
-                      value={song.music.key?.root ?? ""}
-                      onChange={(e) =>
-                        void command({
-                          type: "set_key",
-                          root: e.target.value,
-                          mode:
-                            song.music.key?.mode === "minor"
-                              ? "minor"
-                              : "major",
-                        })
-                      }
-                    >
-                      <option value="" disabled>
-                        Unset
-                      </option>
-                      {[
-                        "C",
-                        "C#",
-                        "D",
-                        "D#",
-                        "E",
-                        "F",
-                        "F#",
-                        "G",
-                        "G#",
-                        "A",
-                        "A#",
-                        "B",
-                      ].map((k) => (
-                        <option key={k}>{k}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <select
-                    aria-label="Key mode"
-                    value={song.music.key?.mode ?? "major"}
-                    onChange={(e) =>
-                      void command({
-                        type: "set_key",
-                        root: song.music.key?.root ?? "C",
-                        mode: e.target.value as "major" | "minor",
-                      })
-                    }
-                  >
-                    <option>major</option>
-                    <option>minor</option>
-                  </select>
-                  <button
-                    disabled={busy || song.music.tracks.length >= 8}
-                    onClick={() =>
-                      void command({
-                        type: "add_track",
-                        instrumentId: "soft_lead",
-                        name: "New lead",
-                      })
-                    }
-                  >
-                    ＋ Track
-                  </button>
-                  <a className="tool-link" href="/instrument-lab.html" target="_blank" rel="noreferrer">
-                    ♫ Instrument Lab
-                  </a>
-                </div>
-              </details>
-              <details className="activity-drawer">
-                <summary>Activity & traces</summary>
-                <AgentMonitor
-                  key={song.id}
-                  songId={song.id}
-                  runId={runId}
-                  onModelSpeech={setModelSpeech}
-                />
-              </details>
-            </div>
+            <AgentMonitor
+              key={song.id}
+              songId={song.id}
+              runId={runId}
+              onModelSpeech={setModelSpeech}
+              hidden
+            />
           </>
         ) : (
           <div className="empty">
@@ -1011,9 +1141,24 @@ function App() {
             </button>
           </div>
         )}
+          </>
+        )}
       </main>
     </div>
   );
+}
+function EditableLabel({ value, label, disabled, onSave }: { value: string; label: string; disabled: boolean; onSave: (value: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const finish = () => {
+    setEditing(false);
+    if (draft.trim() && draft.trim() !== value) onSave(draft.trim());
+  };
+  return editing ? <input className="inline-name-input" aria-label={label} autoFocus maxLength={120} value={draft}
+    onChange={(event) => setDraft(event.target.value)} onBlur={finish}
+    onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.preventDefault(); setEditing(false); } }} />
+    : <button type="button" className="inline-name" aria-label={`Rename ${label}`} title={value} disabled={disabled}
+      onClick={() => { setDraft(value); setEditing(true); }}>{value}</button>;
 }
 function CompanionConsole({
   scene,
@@ -1036,14 +1181,18 @@ function Cassette({ state, disabled, onClick }: { state: "idle" | "working" | "r
     <button
       type="button"
       className={"cassette " + state}
-      aria-label={state === "working" ? "Composing" : "Send composition request"}
-      title={state === "working" ? "Composing…" : "Compose"}
+      aria-label={state === "working" ? "Cancel composition request" : "Send composition request"}
+      title={state === "working" ? "Stop composing" : "Compose"}
       disabled={disabled}
-      onClick={onClick}
+      onClick={() => {
+        void playCassetteClick();
+        onClick();
+      }}
     >
       <div className="cassette-label"><span>CHIP TAPE</span><b>SIDE A</b></div>
       <div className="cassette-window"><i className="reel left" /><em /><i className="reel right" /></div>
       <div className="cassette-notches" />
+      {state === "working" && <span className="cassette-stop" aria-hidden="true">■</span>}
     </button>
   );
 }
@@ -1248,6 +1397,24 @@ function Fader({
     </label>
   );
 }
+function instrumentSwapReason(track: Track, instrumentId: string): string | null {
+  const instrument = INSTRUMENTS[instrumentId];
+  if (!instrument) return "Unknown instrument";
+  if (track.type === "harmonic" && instrument.kind !== "pitched")
+    return "Harmony tracks need a pitched instrument";
+  for (const note of track.notes) {
+    if (note.kind === "hit" && instrument.kind !== "hit")
+      return "Existing drum hits need a percussion instrument";
+    if (note.kind === "pitched" && instrument.kind !== "pitched")
+      return "Existing notes need a pitched instrument";
+    if (note.kind === "pitched") {
+      const midi = pitchToMidi(note.pitch);
+      if (midi !== null && (midi < instrument.minMidi! || midi > instrument.maxMidi!))
+        return `Existing notes must fit ${instrument.name}'s range`;
+    }
+  }
+  return null;
+}
 function Timeline({
   song,
   selection,
@@ -1259,6 +1426,8 @@ function Timeline({
   toggleSolo,
   busy,
   mix,
+  changeInstrument,
+  renameTrack,
 }: {
   song: Song;
   selection: Selection;
@@ -1270,6 +1439,8 @@ function Timeline({
   toggleSolo: (id: string) => void;
   busy: boolean;
   mix: (t: Track, v: number, m: boolean, p: boolean) => void;
+  changeInstrument: (track: Track, instrumentId: string) => void;
+  renameTrack: (track: Track, name: string) => void;
 }) {
   const drag = useRef<{
       beat: number;
@@ -1277,7 +1448,8 @@ function Timeline({
       ruler: boolean;
       moved: boolean;
     } | null>(null),
-    grid = useRef<HTMLDivElement>(null);
+    grid = useRef<HTMLDivElement>(null),
+    [instrumentTrackId, setInstrumentTrackId] = useState<string | null>(null);
   const position = (event: React.PointerEvent) => {
     const rect = grid.current!.getBoundingClientRect();
     return {
@@ -1306,15 +1478,59 @@ function Timeline({
             key={t.id}
             className={"track-info " + (trackId === t.id ? "focused" : "")}
           >
+            <div className="track-label-row">
+              <EditableLabel value={t.name} label={`track ${t.name}`} disabled={busy} onSave={(name) => renameTrack(t, name)} />
             <button
-              className="track-name"
+              className="track-instrument"
+              aria-label={`Instrument for ${t.name}`}
+              aria-haspopup="dialog"
+              aria-expanded={instrumentTrackId === t.id}
               onClick={() => {
                 focus(t.id);
                 select({ kind: "tracks", trackIds: [t.id] });
+                setInstrumentTrackId((open) => open === t.id ? null : t.id);
               }}
             >
-              <InstrumentIcon instrument={t.instrumentId} /><span>{t.name}</span>
+              <InstrumentIcon instrument={t.instrumentId} />
+              <span>{INSTRUMENTS[t.instrumentId]?.name ?? t.instrumentId}</span>
             </button>
+            </div>
+            {instrumentTrackId === t.id && (
+              <div className="instrument-popover" role="dialog" aria-label={`Instrument for ${t.name}`}>
+                <div className="instrument-popover-heading">
+                  <span>Instrument</span>
+                  <button type="button" aria-label="Close instrument chooser" onClick={() => setInstrumentTrackId(null)}>×</button>
+                </div>
+                <div className="instrument-options">
+                  {Object.values(INSTRUMENTS)
+                    .filter((instrument) =>
+                      (instrument.availability !== "candidate" && instrument.availability !== "retired") ||
+                      instrument.id === t.instrumentId,
+                    )
+                    .map((instrument) => {
+                      const reason = instrument.id === t.instrumentId
+                        ? null
+                        : instrumentSwapReason(t, instrument.id);
+                      return (
+                        <button
+                          type="button"
+                          key={instrument.id}
+                          className={instrument.id === t.instrumentId ? "instrument-option chosen" : "instrument-option"}
+                          disabled={busy || !!reason}
+                          title={reason ?? instrument.description}
+                          onClick={() => {
+                            changeInstrument(t, instrument.id);
+                            setInstrumentTrackId(null);
+                          }}
+                        >
+                          <span>{instrument.name}</span>
+                          <small>{instrument.kind === "hit" ? "hit" : t.type === "harmonic" ? "chord" : "pitched"}</small>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
             <div className="mix-buttons">
               <button
                 aria-label={"Mute " + t.name}

@@ -31,6 +31,11 @@ import {
 import { getConfig } from "./config.js";
 import { streamStructured, ModelOutputError } from "./model-stream.js";
 import { diagnoseCandidate } from "./diagnostics.js";
+import {
+  EFFECT_SYSTEM,
+  EffectRecipeSchema,
+  effectPrompt,
+} from "./effects.js";
 
 export type Progress = (type: string, payload?: unknown) => void;
 export type Trace = (type: string, payload: unknown) => Promise<void>;
@@ -115,6 +120,7 @@ export interface ModelAdapter {
   orchestrate(input: string, signal: AbortSignal): Promise<unknown>;
   rhythm?: (input: string, signal: AbortSignal) => Promise<unknown>;
   pitch?: (input: string, signal: AbortSignal) => Promise<unknown>;
+  effect?: (input: string, signal: AbortSignal) => Promise<unknown>;
   /** @deprecated only used by the unreachable legacy repair graph. */
   compose(input: string, signal: AbortSignal): Promise<unknown>;
 }
@@ -148,6 +154,20 @@ export function createModelAdapter(
       streamStructured(client, config.composerModel, RhythmSchema, "rhythm_grid", input, signal, progress, trace, 4000, "low"),
     pitch: (input, signal) =>
       streamStructured(client, config.composerModel, PitchSchema, "pitch_fill", input, signal, progress, trace, 4000, "low"),
+    effect: (input, signal) =>
+      streamStructured(
+        client,
+        config.composerModel,
+        EffectRecipeSchema,
+        "effect_recipe",
+        effectPrompt(input),
+        signal,
+        progress,
+        trace,
+        6000,
+        "low",
+        EFFECT_SYSTEM,
+      ),
     compose: (input, signal) =>
       streamStructured(client, config.composerModel, ReplacementSchema, "legacy_music_replacement", input, signal, progress, trace, 2000, "low"),
   };

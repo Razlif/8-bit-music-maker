@@ -11,8 +11,25 @@ import {
   resolveScope,
   validateCandidate,
   listInstruments,
+  applyCommand,
 } from "../src/index.js";
 describe("core music contracts", () => {
+  it("resets musical content to defaults without replacing song identity or history", () => {
+    const song = newSong(crypto.randomUUID());
+    song.title = "Keep my title";
+    song.revision = 7;
+    song.brief = "Old request";
+    song.music.bars = 16;
+    song.music.bpm = 150;
+    song.music.tracks[0].notes.push({ id: "old-note", kind: "pitched", pitch: "C5", start: frac(0), duration: frac(1), velocity: 100 });
+    const result = applyCommand(song, { type: "reset_song" });
+    expect(result.music).toEqual(newSong(song.id).music);
+    expect(result.title).toBe(song.title);
+    expect(result.id).toBe(song.id);
+    expect(result.revision).toBe(7);
+    expect(result.brief).toBe("");
+    expect(song.music.tracks[0].notes).toHaveLength(1);
+  });
   it("does exact fraction arithmetic", () => {
     expect(add(frac(1, 3), frac(1, 6))).toEqual({ n: 1, d: 2 });
     expect(cmp(frac(2, 3), frac(4, 6))).toBe(0);
@@ -29,8 +46,8 @@ describe("core music contracts", () => {
     const copy = notationRoundTrip(s);
     expect(copy.music.tracks).toHaveLength(6);
     expect(copy.music.tracks.map(({ name, type, instrumentId }) => [name, type, instrumentId])).toEqual([
-      ["Soft Lead", "melodic", "soft_lead"],
-      ["Chip Bass", "melodic", "chip_bass"],
+      ["Lead", "melodic", "soft_lead"],
+      ["Bass", "melodic", "chip_bass"],
       ["Kick", "melodic", "kick"],
       ["Hi-Hat", "melodic", "closed_hat"],
       ["Snare", "melodic", "snare"],
@@ -45,6 +62,37 @@ describe("core music contracts", () => {
     expect(active).not.toContain("bright_lead");
     expect(listInstruments(true).map(({ id }) => id)).toContain("bright_lead");
     expect(listInstruments(true).map(({ id }) => id)).toContain("synth_brass");
+  });
+  it("creates a harmonic track when the track contract requests it", () => {
+    const song = newSong(crypto.randomUUID());
+    const next = applyCommand(song, {
+      type: "add_track",
+      name: "Harmony Pad",
+      instrumentId: "chip_pad",
+      trackType: "harmonic",
+    });
+    expect(next.music.tracks.at(-1)).toMatchObject({
+      name: "Harmony Pad",
+      instrumentId: "chip_pad",
+      type: "harmonic",
+    });
+  });
+  it("rejects instrument swaps that would invalidate existing notes", () => {
+    const song = newSong(crypto.randomUUID());
+    song.music.tracks[0].notes = [{
+      id: "lead-note",
+      kind: "pitched",
+      pitch: "C5",
+      start: frac(0),
+      duration: frac(1),
+      velocity: 100,
+    }];
+    expect(() => applyCommand(song, {
+      type: "edit_track",
+      trackId: song.music.tracks[0].id,
+      name: song.music.tracks[0].name,
+      instrumentId: "kick",
+    })).toThrow(/INSTRUMENT_SWAP_WOULD_INVALIDATE_NOTES/);
   });
   it("rejects overlapping pitched notes", () => {
     const s = newSong(crypto.randomUUID());
