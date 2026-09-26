@@ -12,7 +12,7 @@ The historical Slice 04 text below describes the earlier scope-branching design.
 4. Fan out rhythm workers in waves of four. Each gets its own task, the concise `rhythm.md` tutorial, and local rows. Melodic pitched tasks then get a pitch worker with only its locked rhythm and task guidance; hits are materialized deterministically. Arpeggios remain melodic tasks. Harmonic tasks use the same rhythm worker, then deterministically realize progression chords at attacks and sustain every chord tone across holds; polyphonic playback uses the harmonic track's pitched preset.
 5. Aggregate all rows and new tracks, validate the candidate against the original scope/revision, and save one update. No proposal/A-B stage is part of this demo path.
 
-The live contracts are in `apps/server/src/agent.ts`, `AI-PROMPTS.md`, and `SPEC.md`. The dispatcher receives track names in song context and only returns names for new tracks. Broad song-creation requests use all six empty starter channels (lead, bass, kick, hi-hat, snare, harmonic Chip Pad) unless the request narrows instrumentation. Do not implement the historical `plan_song`/direct-selection branch below.
+The live contracts are in `apps/server/src/agent.ts`, `AI-PROMPTS.md`, and `SPEC.md`. The dispatcher receives track names in song context and only returns names for new tracks. Broad song-creation requests use all six empty starter channels (Soft Lead, bass, kick, hi-hat, snare, harmonic Chip Pad) unless the request narrows instrumentation. Do not implement the historical `plan_song`/direct-selection branch below.
 
 ## 0. Instructions to the implementing agent
 
@@ -53,7 +53,7 @@ Choose these defaults without another product questionnaire:
 | Request budget | Default 180-second run deadline; no unbounded model/tool loops |
 | Loop/export | No end-to-start ties; one loop-length WAV, 5 ms edge fades, no appended tail |
 
-New song: empty notes on four tracks (Bright Lead, Chip Bass, Kick, Closed Hi-Hat). This gives a visible, editable workspace before an API call. Whole-song creation is allowed to choose presets and add/remove initial tracks within an explicit creation permission; later whole-song note edits do not imply structural or mix permission.
+New song: empty notes on six tracks (Soft Lead, Chip Bass, Kick, Closed Hi-Hat, Snare, and Harmony). This gives a visible, editable workspace before an API call. Whole-song creation is allowed to choose presets and add/remove initial tracks within an explicit creation permission; later whole-song note edits do not imply structural or mix permission.
 
 Suggested layout (equivalent small arrangements are fine; keep boundaries):
 
@@ -198,12 +198,19 @@ Initial registry:
 | ID | Type | MIDI range | Character |
 |---|---|---|---|
 | `chip_bass` | pitched | 24–60 | triangle, sustained |
-| `bright_lead` | pitched | 48–96 | pulse/square, sustained |
+| `saw_lead` | pitched | 48–96 | buzzy saw lead, sustained |
 | `soft_lead` | pitched | 48–96 | mellow triangle, sustained |
 | `pluck` | pitched | 36–96 | short pulse pluck; hold extends gate, not a new attack |
+| `fm_bell` | pitched | 48–96 | metallic bell |
+| `dream_pad` | pitched | 36–84 | wide slow pad |
+| `electric_piano` | pitched | 36–96 | percussive keys |
 | `kick` | hit | — | downward-pitched short drum |
 | `snare` | hit | — | noise with short tonal body |
 | `closed_hat` | hit | — | short filtered noise |
+| `open_hat` | hit | — | longer noisy hat |
+| `low_tom` | hit | — | rounded tuned drum |
+| `woodblock` | hit | — | dry tuned click |
+| `crash` | hit | — | long noisy cymbal accent |
 
 **Gate:** typecheck/build shell; fraction equality and comparisons; invalid denominator/overflow; exactly touching notes; overlaps; wrong preset type; ninth track; bounds violations; basic fixture round-trip JSON. These tests target data integrity, not UI styling.
 

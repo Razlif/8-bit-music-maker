@@ -10,6 +10,7 @@ import {
   validateSong,
   resolveScope,
   validateCandidate,
+  listInstruments,
 } from "../src/index.js";
 describe("core music contracts", () => {
   it("does exact fraction arithmetic", () => {
@@ -28,7 +29,7 @@ describe("core music contracts", () => {
     const copy = notationRoundTrip(s);
     expect(copy.music.tracks).toHaveLength(6);
     expect(copy.music.tracks.map(({ name, type, instrumentId }) => [name, type, instrumentId])).toEqual([
-      ["Bright Lead", "melodic", "bright_lead"],
+      ["Soft Lead", "melodic", "soft_lead"],
       ["Chip Bass", "melodic", "chip_bass"],
       ["Kick", "melodic", "kick"],
       ["Hi-Hat", "melodic", "closed_hat"],
@@ -36,6 +37,14 @@ describe("core music contracts", () => {
       ["Harmony", "harmonic", "chip_pad"],
     ]);
     expect(serializeNotation(s)).toContain("BAR 4");
+  });
+  it("keeps reviewed active sounds separate from candidates and retired presets", () => {
+    const active = listInstruments().map(({ id }) => id);
+    expect(active).toContain("saw_lead");
+    expect(active).toContain("fm_bell");
+    expect(active).not.toContain("bright_lead");
+    expect(listInstruments(true).map(({ id }) => id)).toContain("bright_lead");
+    expect(listInstruments(true).map(({ id }) => id)).toContain("synth_brass");
   });
   it("rejects overlapping pitched notes", () => {
     const s = newSong(crypto.randomUUID());

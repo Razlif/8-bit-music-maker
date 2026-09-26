@@ -16,6 +16,8 @@ import {
   min,
   max,
   cmp,
+  INSTRUMENTS,
+  isActiveInstrument,
   listInstruments,
   CHORD_QUALITIES,
   resolveChord,
@@ -183,7 +185,7 @@ export function requestScope(input: RunInput): Scope {
 }
 
 function instrumentDefinition(id: string) {
-  return listInstruments().find((instrument) => instrument.id === id);
+  return INSTRUMENTS[id];
 }
 
 function aliasesToTracks(song: Song) {
@@ -208,7 +210,8 @@ export function validateOrchestrationPlan(input: RunInput, plan: OrchestrationPl
     if (task.type !== trackType) throw new Error("TASK_TRACK_TYPE_MISMATCH: " + task.track);
     if (task.instrumentId !== instrumentId) throw new Error("TASK_INSTRUMENT_MISMATCH: " + task.track);
     const definition = instrumentDefinition(instrumentId);
-    if (!definition) throw new Error("UNKNOWN_INSTRUMENT: " + instrumentId);
+    if (!definition || (created && !isActiveInstrument(definition)))
+      throw new Error("UNKNOWN_OR_RETIRED_INSTRUMENT: " + instrumentId);
     if (task.type === "harmonic" && (definition.kind !== "pitched" || !task.register || !task.voicing))
       throw new Error("INVALID_HARMONIC_TASK: pitched instrument, register and voicing are required for " + task.track);
     if (task.type === "melodic" && task.voicing !== null)
@@ -491,7 +494,7 @@ function orchestrationPrompt(input: RunInput) {
       range: "Use only bars inside the song. Sections must cover the task's complete contiguous bar range with no gaps or overlaps.",
       workers: "type=melodic means rhythm worker followed by pitch worker for pitched instruments; arpeggios are ordinary melodic tasks described by pitchInstruction. Hit instruments use rhythm only. type=harmonic means rhythm worker followed by deterministic block-chord realization from progression, register, and voicing.",
       taskType: "Use melodic for single-note lines, including bass, lead, melody and arpeggios. Use harmonic only for simultaneous block chords. Do not add a role field: track name, instrumentId, type and instructions describe the task.",
-      defaultArrangement: "When the user asks broadly to write, create, or compose a song without limiting the instrumentation, create one task for each of the six standard starter tracks listed in SONG_CONTEXT: Bright Lead (bright_lead, melodic), Chip Bass (chip_bass, melodic), Kick (kick, rhythm-only percussion), Hi-Hat (closed_hat, rhythm-only percussion), Snare (snare, rhythm-only percussion), and Harmony (chip_pad, harmonic block chords). Reuse those existing tracks by their t-alias; do not add duplicates. For Harmony provide a progression, register, voicing and chord rhythm. If the user asks for a subset, honor it and leave other starter tracks unchanged; explicit instrumentation overrides this default.",
+      defaultArrangement: "When the user asks broadly to write, create, or compose a song without limiting the instrumentation, create one task for each of the six standard starter tracks listed in SONG_CONTEXT: Soft Lead (soft_lead, melodic), Chip Bass (chip_bass, melodic), Kick (kick, rhythm-only percussion), Hi-Hat (closed_hat, rhythm-only percussion), Snare (snare, rhythm-only percussion), and Harmony (chip_pad, harmonic block chords). Reuse those existing tracks by their t-alias; do not add duplicates. For Harmony provide a progression, register, voicing and chord rhythm. If the user asks for a subset, honor it and leave other starter tracks unchanged; explicit instrumentation overrides this default.",
       harmony: "Return a progression of absolute chord roots and supported qualities. startBeat is zero-based and endBeat is exclusive. Cover every beat of each harmonic task with contiguous non-overlapping chords. Convert Roman numeral requests into concrete roots using the song key. A chord boundary may be silent; the next attack uses the chord active at that moment. Never hold the previous chord through a chord change: use x at the boundary when the new chord must continue sounding, or . when silence is intended. Supported qualities: " + CHORD_QUALITIES.join(", "),
       newTracks: "Create multiple new tracks when the request requires them. Each new track must be declared once in newTracks and have one matching task.",
       guidance: "Give concrete, short instructions: pulse density, rests, syncopation, repeated cells, phrase changes and return points. Do not inject bass, drums or any other role unless the request calls for it.",

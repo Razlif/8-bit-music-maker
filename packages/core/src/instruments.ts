@@ -1,8 +1,10 @@
 export type InstrumentKind = "pitched" | "hit";
+export type InstrumentAvailability = "production" | "candidate" | "retired";
 export type Instrument = {
   id: string;
   name: string;
   kind: InstrumentKind;
+  availability?: InstrumentAvailability;
   minMidi?: number;
   maxMidi?: number;
   description: string;
@@ -20,6 +22,7 @@ export const INSTRUMENTS: Record<string, Instrument> = {
     id: "bright_lead",
     name: "Bright Lead",
     kind: "pitched",
+    availability: "retired",
     minMidi: 48,
     maxMidi: 96,
     description: "Bright square-wave lead",
@@ -66,8 +69,155 @@ export const INSTRUMENTS: Record<string, Instrument> = {
     kind: "hit",
     description: "Short filtered noise hat",
   },
+  pulse_lead: {
+    id: "pulse_lead",
+    name: "Pulse Lead",
+    kind: "pitched",
+    availability: "candidate",
+    minMidi: 48,
+    maxMidi: 96,
+    description: "Focused square-wave lead with a crisp arcade attack",
+  },
+  saw_lead: {
+    id: "saw_lead",
+    name: "Saw Lead",
+    kind: "pitched",
+    availability: "production",
+    minMidi: 48,
+    maxMidi: 96,
+    description: "Bright buzzy lead for heroic melodies",
+  },
+  fm_bell: {
+    id: "fm_bell",
+    name: "FM Bell",
+    kind: "pitched",
+    availability: "production",
+    minMidi: 48,
+    maxMidi: 96,
+    description: "Metallic bell for magical and sparkling phrases",
+  },
+  glass_bell: {
+    id: "glass_bell",
+    name: "Glass Bell",
+    kind: "pitched",
+    availability: "candidate",
+    minMidi: 60,
+    maxMidi: 108,
+    description: "Small crystalline bell with a quick decay",
+  },
+  synth_brass: {
+    id: "synth_brass",
+    name: "Synth Brass",
+    kind: "pitched",
+    availability: "candidate",
+    minMidi: 48,
+    maxMidi: 84,
+    description: "Punchy brass-like stabs and held fanfares",
+  },
+  reed_organ: {
+    id: "reed_organ",
+    name: "Reed Organ",
+    kind: "pitched",
+    availability: "candidate",
+    minMidi: 36,
+    maxMidi: 96,
+    description: "Steady square-edged organ for chords and counterpoint",
+  },
+  warm_strings: {
+    id: "warm_strings",
+    name: "Warm Strings",
+    kind: "pitched",
+    availability: "candidate",
+    minMidi: 36,
+    maxMidi: 96,
+    description: "Soft sustained string-like pad",
+  },
+  dream_pad: {
+    id: "dream_pad",
+    name: "Dream Pad",
+    kind: "pitched",
+    availability: "production",
+    minMidi: 36,
+    maxMidi: 84,
+    description: "Wide slow pad for background harmony",
+  },
+  choir_pad: {
+    id: "choir_pad",
+    name: "Choir Pad",
+    kind: "pitched",
+    availability: "candidate",
+    minMidi: 36,
+    maxMidi: 84,
+    description: "Hollow vocal-like pad for ancient and fantasy moods",
+  },
+  harp_pluck: {
+    id: "harp_pluck",
+    name: "Harp Pluck",
+    kind: "pitched",
+    availability: "candidate",
+    minMidi: 48,
+    maxMidi: 108,
+    description: "Short bright pluck for arpeggios and ornaments",
+  },
+  electric_piano: {
+    id: "electric_piano",
+    name: "Electric Piano",
+    kind: "pitched",
+    availability: "production",
+    minMidi: 36,
+    maxMidi: 96,
+    description: "Soft percussive keys with a small bell overtone",
+  },
+  open_hat: {
+    id: "open_hat",
+    name: "Open Hi-Hat",
+    kind: "hit",
+    availability: "production",
+    description: "Longer noisy hat for transitions and lift",
+  },
+  low_tom: {
+    id: "low_tom",
+    name: "Low Tom",
+    kind: "hit",
+    availability: "production",
+    description: "Rounded tuned drum for fills",
+  },
+  clap: {
+    id: "clap",
+    name: "Clap",
+    kind: "hit",
+    availability: "candidate",
+    description: "Short bright noise burst with a wooden body",
+  },
+  shaker: {
+    id: "shaker",
+    name: "Shaker",
+    kind: "hit",
+    availability: "candidate",
+    description: "Short high-passed noise tick",
+  },
+  woodblock: {
+    id: "woodblock",
+    name: "Woodblock",
+    kind: "hit",
+    availability: "production",
+    description: "Dry tuned click for rhythmic punctuation",
+  },
+  crash: {
+    id: "crash",
+    name: "Crash",
+    kind: "hit",
+    availability: "production",
+    description: "Long noisy cymbal accent",
+  },
 };
-export const listInstruments = () => Object.values(INSTRUMENTS);
+export const isActiveInstrument = (instrument: Instrument) =>
+  instrument.availability !== "candidate" && instrument.availability !== "retired";
+
+export const listInstruments = (includeCandidates = false) =>
+  Object.values(INSTRUMENTS).filter(
+    (instrument) => includeCandidates || isActiveInstrument(instrument),
+  );
 const pitchPattern = /^([A-G])([#b]?)([0-8])$/;
 const semitones: Record<string, number> = {
   C: 0,

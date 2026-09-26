@@ -43,7 +43,7 @@ type WorkPhase = "orchestration" | "rhythm" | "pitch" | "validation";
 type WorkCue = { scene: "dj" | "keyboard"; speech: string };
 const workCues: Record<WorkPhase, WorkCue[]> = {
   orchestration: [
-    { scene: "dj", speech: "Listening for the shape…" },
+    { scene: "dj", speech: "Listening for the groove…" },
     { scene: "keyboard", speech: "Sketching out the parts…" },
   ],
   rhythm: [
@@ -686,16 +686,13 @@ function App() {
                   />
                 </div>
               </div>
-              <div className="composer-footer">
-                {runId && (
+              {runId && (
+                <div className="composer-footer">
                   <button onClick={() => cancel().catch(showError)}>
                     Cancel request
                   </button>
-                )}
-                <p role="status" className="status">
-                  {status}
-                </p>
-              </div>
+                </div>
+              )}
             </aside>
             <div className="studio">
               <section className="editor">
@@ -788,11 +785,16 @@ function App() {
                           })
                         }
                       >
-                        {Object.values(INSTRUMENTS).map((i) => (
+                        {Object.values(INSTRUMENTS)
+                          .filter((i) =>
+                            (i.availability !== "candidate" && i.availability !== "retired") ||
+                            i.id === track.instrumentId,
+                          )
+                          .map((i) => (
                           <option key={i.id} value={i.id}>
-                            {i.name}
+                            {i.name}{i.availability === "retired" ? " (retired)" : ""}
                           </option>
-                        ))}
+                          ))}
                       </select>
                       <button
                         disabled={busy}
@@ -974,13 +976,16 @@ function App() {
                     onClick={() =>
                       void command({
                         type: "add_track",
-                        instrumentId: "bright_lead",
+                        instrumentId: "soft_lead",
                         name: "New lead",
                       })
                     }
                   >
                     ＋ Track
                   </button>
+                  <a className="tool-link" href="/instrument-lab.html" target="_blank" rel="noreferrer">
+                    ♫ Instrument Lab
+                  </a>
                 </div>
               </details>
               <details className="activity-drawer">

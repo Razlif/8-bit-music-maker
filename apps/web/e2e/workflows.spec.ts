@@ -33,7 +33,7 @@ test("manual notes, selections, mixer, export and reload without API credentials
   await page.mouse.up();
   await expect.poll(() => note.getAttribute("x")).not.toBe(before);
   await expect(page.locator("p[role=status]")).toContainText("Saved");
-  const fader = page.getByRole("slider", { name: "Bright Lead volume" });
+  const fader = page.getByRole("slider", { name: "Soft Lead volume" });
   await fader.focus();
   await fader.press("ArrowRight");
   await expect(page.locator(".fader output").first()).toHaveText("-11 dB");
@@ -42,14 +42,14 @@ test("manual notes, selections, mixer, export and reload without API credentials
     page.getByRole("button", { name: "Stop playback" }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Solo Bright Lead", exact: true })
+    .getByRole("button", { name: "Solo Soft Lead", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Mute Bright Lead", exact: true })
+    .getByRole("button", { name: "Mute Soft Lead", exact: true })
     .click();
   await page.getByRole("button", { name: "Stop playback" }).click();
   await page
-    .getByRole("button", { name: "Mute Bright Lead", exact: true })
+    .getByRole("button", { name: "Mute Soft Lead", exact: true })
     .click();
   await expect(page.locator("p[role=status]")).toContainText("Saved");
   const downloadPromise = page.waitForEvent("download");
@@ -69,7 +69,7 @@ test("manual notes, selections, mixer, export and reload without API credentials
     page.getByLabel("Piano roll").locator("[data-id]:not([data-resize])"),
   ).toHaveCount(1);
   await expect(
-    page.getByRole("slider", { name: "Bright Lead volume" }),
+    page.getByRole("slider", { name: "Soft Lead volume" }),
   ).toHaveValue("-11");
   await page.setViewportSize({ width: 600, height: 900 });
   await page.screenshot({

@@ -7,7 +7,7 @@ test('quiet studio keeps tools folded and selection does not open note editor', 
   await expect(page.getByLabel('Piano roll')).not.toBeVisible();
   await expect(page.getByRole('region', { name: 'AI run monitor' })).not.toBeVisible();
   await expect(page.getByRole('button', { name: '＋ New song', exact: true })).not.toBeVisible();
-  await page.getByRole('button', { name: 'Bright Lead', exact: true }).click();
+  await page.getByRole('button', { name: 'Soft Lead', exact: true }).click();
   await expect(page.getByLabel('Piano roll')).not.toBeVisible();
   const editor = await page.locator('.editor').boundingBox();
   const composer = await page.locator('.agent').boundingBox();

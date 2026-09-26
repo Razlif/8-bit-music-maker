@@ -1,116 +1,11 @@
 import * as Tone from "tone";
-import { value, type Song, type Track, type Note } from "@eight-bit/core";
-
-type Voice = {
-  gain: Tone.Volume;
-  trigger: (note: Note, duration: number, time: number) => void;
-  dispose: () => void;
-};
-function voice(track: Track, output: Tone.ToneAudioNode): Voice {
-  const gain = new Tone.Volume(track.volumeDb).connect(output);
-  gain.mute = track.muted;
-  if (track.type === "harmonic") {
-    const synth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: track.instrumentId === "chip_pad" ? "triangle" : "square" },
-      envelope: { attack: 0.08, decay: 0.12, sustain: 0.72, release: 0.3 },
-      volume: -5,
-    }).connect(gain);
-    return {
-      gain,
-      trigger: (n, d, t) => {
-        if (n.kind === "pitched")
-          synth.triggerAttackRelease(n.pitch, Math.max(0.001, d - 0.004), t, n.velocity / 127);
-      },
-      dispose: () => {
-        synth.dispose();
-        gain.dispose();
-      },
-    };
-  }
-  if (track.instrumentId === "kick") {
-    const synth = new Tone.MembraneSynth({
-      pitchDecay: 0.035,
-      octaves: 5,
-      envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.03 },
-    }).connect(gain);
-    return {
-      gain,
-      trigger: (n, _d, t) =>
-        synth.triggerAttackRelease("C1", 0.08, t, n.velocity / 127),
-      dispose: () => {
-        synth.dispose();
-        gain.dispose();
-      },
-    };
-  }
-  if (track.instrumentId === "snare" || track.instrumentId === "closed_hat") {
-    const hat = track.instrumentId === "closed_hat",
-      filter = new Tone.Filter(hat ? 6500 : 1800, "highpass").connect(gain);
-    const synth = new Tone.NoiseSynth({
-      noise: { type: "white" },
-      envelope: {
-        attack: 0.001,
-        decay: hat ? 0.035 : 0.12,
-        sustain: 0,
-        release: 0.01,
-      },
-    }).connect(filter);
-    const body = hat
-      ? null
-      : new Tone.Synth({
-          oscillator: { type: "triangle" },
-          envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.01 },
-        }).connect(gain);
-    return {
-      gain,
-      trigger: (n, _d, t) => {
-        synth.triggerAttackRelease(hat ? 0.025 : 0.08, t, n.velocity / 127);
-        body?.triggerAttackRelease("D3", 0.045, t, n.velocity / 254);
-      },
-      dispose: () => {
-        synth.dispose();
-        body?.dispose();
-        filter.dispose();
-        gain.dispose();
-      },
-    };
-  }
-  const pluck = track.instrumentId === "pluck";
-  const synth = new Tone.Synth({
-    oscillator: {
-      type: ["chip_bass", "soft_lead"].includes(track.instrumentId)
-        ? "triangle"
-        : "square",
-    },
-    envelope: {
-      attack: 0.004,
-      decay: pluck ? 0.09 : 0.025,
-      sustain: pluck ? 0.08 : 0.55,
-      release: 0.004,
-    },
-  }).connect(gain);
-  return {
-    gain,
-    trigger: (n, d, t) => {
-      if (n.kind === "pitched")
-        synth.triggerAttackRelease(
-          n.pitch,
-          Math.max(0.001, d - 0.004),
-          t,
-          n.velocity / 127,
-        );
-    },
-    dispose: () => {
-      synth.dispose();
-      gain.dispose();
-    },
-  };
-}
+import { value, type Song, type Track } from "@eight-bit/core";
+import { createInstrumentVoice } from "./instrument-voices.js";
 function session(song: Song, analyse = false) {
   const limiter = new Tone.Limiter(-1).toDestination(),
     master = new Tone.Gain(0.35).connect(limiter);
   const voices = new Map(
-    song.music.tracks.map((t) => [t.id, voice(t, master)]),
+    song.music.tracks.map((t) => [t.id, createInstrumentVoice(t, master)]),
   );
   const meters = new Map<string, Tone.Meter>();
   const fft = analyse ? new Tone.FFT(256) : undefined;

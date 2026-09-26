@@ -390,12 +390,6 @@ input[type="checkbox"] {
   width: 100%;
   padding: 11px;
 }
-.status {
-  font-size: 11px;
-  color: var(--cyan);
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
 .proposal {
   border-top: 1px solid var(--line);
   margin-top: 20px;
@@ -1121,9 +1115,6 @@ summary:focus-visible {
   gap: 16px;
   min-height: 44px;
 }
-.composer-footer .status {
-  margin-left: auto;
-}
 .check {
   font-size: 11px;
 }
@@ -1222,10 +1213,6 @@ summary:focus-visible {
   .companion-console { width: 100%; }
   .sprite-speech { width: auto; flex: 1; }
   .cassette { display: none; }
-  .composer-footer .status {
-    width: 100%;
-    margin: 0;
-  }
 .proposal .ab {
   margin-left: 0;
 }
@@ -1356,6 +1343,20 @@ summary:focus-visible {
 .bottom-drawers > details {
   border-top: 1px solid var(--line);
   padding: 0;
+}
+.tool-link {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  background: #1b1d2a;
+  color: var(--purple);
+  padding: 8px 10px;
+  text-decoration: none;
+  font-size: 11px;
+}
+.tool-link:hover {
+  border-color: var(--purple);
+  background: #2a2540;
 }
 .bottom-drawers .song-settings {
   margin-bottom: 0;

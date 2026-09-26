@@ -1,8 +1,12 @@
 # Implementation and repair status
 
+## Instrument catalog review — 2026-09-26
+
+Imported the Instrument Lab review: promoted Saw Lead, FM Bell, Dream Pad, Electric Piano, Open Hi-Hat, Low Tom, Woodblock, and Crash to the active catalog; left Synth Brass and unreviewed sounds as candidates; and retired Bright Lead from new selection while retaining its implementation for older songs. Fresh songs and broad dispatcher arrangements now use Soft Lead. Typechecks and the production web build pass. The full core suite still contains the unrelated pre-existing `new_lead` scope-fixture failure; the Instrument Lab browser test could not start because port 3101 was already occupied by another process.
+
 ## Fresh-song starter channels — 2026-09-25
 
-Fresh songs now start with six empty channels: Bright Lead, Chip Bass, Kick, Hi-Hat, Snare, and harmonic Harmony using the Chip Pad preset. The dispatcher is instructed to fill all six for broad, unrestricted song-creation requests, while respecting narrower requested ensembles. Updated the specification, prompt guide, roadmap, README, and starter-song expectations in test sources. Typecheck verification is pending; tests have not been run.
+Fresh songs now start with six empty channels: Soft Lead, Chip Bass, Kick, Hi-Hat, Snare, and harmonic Harmony using the Chip Pad preset. The dispatcher is instructed to fill all six for broad, unrestricted song-creation requests, while respecting narrower requested ensembles. Updated the specification, prompt guide, roadmap, README, and starter-song expectations in test sources. Typecheck verification is pending; tests have not been run.
 
 ## Harmonic block-chord track support — 2026-09-25
 

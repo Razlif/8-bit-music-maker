@@ -1,0 +1,49 @@
+:root {
+  color-scheme: dark;
+  font-family: "Courier New", monospace;
+  color: #e4dfef;
+  background: #0e1119;
+  --line: #38384c;
+  --muted: #9692ab;
+  --purple: #bca4ea;
+  --cyan: #8ce3d4;
+  --yellow: #efd27d;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; background: radial-gradient(circle at 75% 0%, #211c35 0, #0e1119 44rem); }
+button, select { font: inherit; color: inherit; }
+button { border: 1px solid var(--line); background: #1b1d2a; padding: 9px 11px; cursor: pointer; }
+button:hover:not(:disabled), button.selected, button.reviewed { border-color: var(--purple); background: #2a2540; }
+button:disabled { opacity: .4; cursor: default; }
+.lab-shell { max-width: 1240px; margin: 0 auto; padding: 34px 34px 64px; }
+.lab-header { display: flex; justify-content: space-between; align-items: end; gap: 28px; border-bottom: 1px solid var(--line); padding-bottom: 28px; }
+.lab-back { color: var(--purple); text-decoration: none; font-size: 12px; }
+.lab-eyebrow, .instrument-family { color: var(--cyan); letter-spacing: .15em; font-size: 10px; }
+.lab-eyebrow { margin: 38px 0 12px; }
+h1 { font-family: system-ui, sans-serif; font-size: clamp(32px, 6vw, 64px); font-weight: 400; letter-spacing: -.06em; margin: 0; }
+.lab-subtitle { color: var(--muted); margin: 12px 0 0; font-size: 13px; }
+.stop-button { border-color: #8d6d8b; color: #f1b8c3; }
+.lab-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 18px 0; }
+.lab-filters { display: flex; gap: 5px; flex-wrap: wrap; margin-right: auto; }
+.lab-filters button { padding: 7px 9px; font-size: 11px; }
+.last-audition { color: var(--muted); font-size: 11px; }
+.last-audition b { color: var(--cyan); font-weight: 400; }
+select { border: 1px solid var(--line); background: #171a25; padding: 8px; }
+.lab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.instrument-card { background: linear-gradient(150deg, #1a1d2a, #151722); border: 1px solid var(--line); padding: 16px; min-height: 205px; box-shadow: 4px 4px 0 #090b11; }
+.instrument-card.keep { border-color: #7ab7a6; }
+.instrument-card.maybe { border-color: #a89561; }
+.instrument-card.reject { opacity: .55; }
+.instrument-card-top { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
+.instrument-card h2 { font-family: system-ui, sans-serif; font-size: 20px; font-weight: 500; margin: 7px 0 0; }
+.instrument-card p { color: var(--muted); font-size: 11px; line-height: 1.5; min-height: 34px; }
+.catalog-badge { border: 1px solid #53645f; padding: 4px 5px; color: var(--cyan); font-size: 8px; white-space: nowrap; }
+.catalog-badge.candidate { border-color: #75653c; color: var(--yellow); }
+.catalog-badge.retired { border-color: #6c536b; color: #c09abf; }
+.audition-buttons, .review-buttons { display: flex; flex-wrap: wrap; gap: 5px; }
+.audition-buttons button, .review-buttons button { font-size: 10px; padding: 7px 8px; }
+.audition-buttons button.playing { color: #10151a; background: var(--cyan); border-color: var(--cyan); }
+.review-buttons { margin-top: 14px; padding-top: 11px; border-top: 1px dotted #3b3b50; }
+.review-buttons button { color: var(--muted); background: transparent; border-color: transparent; }
+.lab-footer { color: #706d80; font-size: 10px; margin-top: 24px; }
+@media (max-width: 640px) { .lab-shell { padding: 22px 16px 40px; } .lab-header { align-items: start; flex-direction: column; } .stop-button { align-self: stretch; } }

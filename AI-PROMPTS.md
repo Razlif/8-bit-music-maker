@@ -39,7 +39,7 @@ It returns no row bodies, no pitches, no IDs, and no notation. The output is:
 
 The backend rejects duplicate task tracks, unknown tracks, range errors, task/instrument mismatches, non-contiguous sections, unused new tracks, more than eight total tracks, and pitch guidance on hit instruments before any worker runs. Harmonic progression intervals must cover each task without gaps or overlaps; each chord change must begin on a rhythm attack, and deterministic chord tones must fit the requested register and instrument.
 
-For an unrestricted “write/create/compose a song” request, the dispatcher uses all six standard starter tracks shown in song context: Bright Lead, Chip Bass, Kick, Hi-Hat, Snare, and harmonic Harmony (Chip Pad). It references their existing `t1`–`t6` aliases, declares no duplicates in `newTracks`, and supplies a chord progression for Harmony. Requests that name a narrower ensemble use only that subset and leave the other channels unchanged.
+For an unrestricted “write/create/compose a song” request, the dispatcher uses all six standard starter tracks shown in song context: Soft Lead, Chip Bass, Kick, Hi-Hat, Snare, and harmonic Harmony (Chip Pad). It references their existing `t1`–`t6` aliases, declares no duplicates in `newTracks`, and supplies a chord progression for Harmony. Requests that name a narrower ensemble use only that subset and leave the other channels unchanged.
 
 ## Rhythm worker prompt
 
