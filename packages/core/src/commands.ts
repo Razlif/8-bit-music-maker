@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { add, cmp, frac, type Fraction } from "./fractions.js";
 import { midiToPitch, pitchToMidi, INSTRUMENTS } from "./instruments.js";
-import { FractionSchema, validateSong, newSong, type Song } from "./schema.js";
+import { FractionSchema, KeyRootSchema, validateSong, newSong, type Song } from "./schema.js";
 import { serializeNotation } from "./notation.js";
 const id = z.string().min(1);
 export const CommandSchema = z.discriminatedUnion("type", [
@@ -23,8 +23,8 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("set_key"),
-      root: z.string().regex(/^[A-G][#b]?$/),
-      mode: z.enum(["major", "minor"]),
+      root: KeyRootSchema.nullable(),
+      mode: z.enum(["major", "minor"]).optional(),
     })
     .strict(),
   z
@@ -114,7 +114,25 @@ export function applyCommand(song: Song, input: unknown): Song {
       next.title = command.title;
       break;
     case "set_key":
-      next.music.key = { root: command.root, mode: command.mode };
+      if (command.root && next.music.key?.root && next.music.key.root !== command.root) {
+        const from = pitchToMidi(next.music.key.root + "4");
+        const to = pitchToMidi(command.root + "4");
+        if (from === null || to === null) throw new Error("INVALID_KEY_ROOT");
+        const semitones = (to % 12) - (from % 12);
+        for (const current of next.music.tracks) {
+          const instrument = INSTRUMENTS[current.instrumentId];
+          for (const currentNote of current.notes) {
+            if (currentNote.kind !== "pitched") continue;
+            const midi = pitchToMidi(currentNote.pitch);
+            if (midi === null) throw new Error("INVALID_PITCH");
+            const transposed = midi + semitones;
+            if (instrument.kind !== "pitched" || transposed < instrument.minMidi! || transposed > instrument.maxMidi!)
+              throw new Error("TRANSPOSE_OUT_OF_RANGE: " + current.id + " " + currentNote.pitch + " -> " + midiToPitch(transposed));
+            currentNote.pitch = midiToPitch(transposed);
+          }
+        }
+      }
+      next.music.key = command.root ? { root: command.root, ...(command.mode ? { mode: command.mode } : {}) } : null;
       break;
     case "resize_song": {
       const end = frac(command.bars * 4),

@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
   applyCommand,
   validateCandidate,
+  trimUpdateToSelection,
   musicalDiff,
   FractionSchema,
   type Candidate,
@@ -49,6 +50,7 @@ const RequestSchema = z
   .object({
     instruction: z.string().trim().min(1).max(4000),
     selection: SelectionSchema,
+    rhythmFormat: z.enum(["json", "notation"]).default("json"),
     expectedRevision: z.number().int().nonnegative(),
   })
   .strict();
@@ -58,6 +60,8 @@ type Run = {
   status: string;
   events: any[];
   sequence: number;
+  traceEvents: any[];
+  traceSequence: number;
   error: { code: string; message: string } | null;
   controller: AbortController;
   result?: SaveResult;
@@ -65,9 +69,7 @@ type Run = {
   startedAt: string;
   deadlineAt: string;
   stage: string;
-  trace: unknown[];
   pending: Promise<void>;
-  traceError?: string;
   baseRevision: number;
   endedAt?: string;
   modelStream?: unknown;
@@ -87,10 +89,10 @@ function errorInfo(e: unknown) {
       code: "PROVIDER_ERROR",
       message:
         status === 401
-          ? "OpenAI authentication failed. Check the server API key."
+          ? "AI provider authentication failed. Check the selected provider API key."
           : status === 429
-            ? "OpenAI rate limit or quota exceeded."
-            : "OpenAI request failed (" + status + ").",
+            ? "AI provider rate limit or quota exceeded."
+            : "AI provider request failed (" + status + ").",
     };
   const message = e instanceof Error ? e.message : "Unexpected error";
   return {
@@ -107,7 +109,7 @@ export async function createApp(
     library = new Library(config.songsDir),
     runs = new Map<string, Run>();
   const effectAdapter =
-    adapter?.effect ? adapter : config.openaiKey ? createModelAdapter() : undefined;
+    adapter?.effect ? adapter : config.providerKey ? createModelAdapter() : undefined;
   const transcriptionClient = config.openaiKey
     ? new OpenAI({
         apiKey: config.openaiKey,
@@ -115,14 +117,7 @@ export async function createApp(
         timeout: config.runTimeoutMs,
       })
     : undefined;
-  let closing = false;
   await library.init();
-  try {
-    await library.recover();
-  } catch (e) {
-    await library.close();
-    throw e;
-  }
   const origins = [
     "http://127.0.0.1:5173",
     "http://localhost:5173",
@@ -155,7 +150,6 @@ export async function createApp(
     reply.code(status).send(info);
   });
   app.addHook("onClose", async () => {
-    closing = true;
     for (const run of runs.values()) run.controller.abort();
     await Promise.allSettled([...runs.values()].map((r) => r.pending));
     await library.close();
@@ -236,26 +230,6 @@ export async function createApp(
   app.post("/api/songs/:id/duplicate", async (req) =>
     library.duplicate((req.params as any).id),
   );
-  app.get("/api/songs/:id/history", async (req) =>
-    library.history((req.params as any).id),
-  );
-  app.post("/api/songs/:id/history/retry", async (req) =>
-    library.retryHistory((req.params as any).id),
-  );
-  app.post("/api/songs/:id/restore", async (req) => {
-    const b = z
-      .object({
-        commit: z.string().regex(/^[a-f0-9]{40}$/),
-        expectedRevision: z.number().int(),
-      })
-      .strict()
-      .parse(req.body);
-    return library.restore(
-      (req.params as any).id,
-      b.commit,
-      b.expectedRevision,
-    );
-  });
   app.post("/api/songs/:id/commands", async (req) => {
     const { expectedRevision, ...command } = req.body as Record<
       string,
@@ -276,29 +250,10 @@ export async function createApp(
     startedAt: run.startedAt,
     deadlineAt: run.deadlineAt,
     stage: run.stage,
-    traceError: run.traceError,
     endedAt: run.endedAt,
     modelStream: run.modelStream,
     passage: run.passage,
   });
-  const persist = (run: Run) => {
-    // Capture now, serialize writes in order, and atomically replace the last checkpoint.
-    const snapshot = structuredClone({
-      ...publicRun(run),
-      baseRevision: run.baseRevision,
-      updatedAt: new Date().toISOString(),
-      events: run.events,
-      trace: run.trace,
-      traceVersion: 1,
-    });
-    const task = run.pending.then(() =>
-      library.recordRun(run.songId, run.id, snapshot),
-    );
-    run.pending = task.catch(() => {
-      run.traceError = "TRACE_WRITE_FAILED: local diagnostic storage failed";
-    });
-    return task;
-  };
   const emit = (run: Run, type: string, payload?: unknown) => {
     if (type === "passage") run.passage = payload;
     if (type === "model_stream" || type === "model_started")
@@ -314,38 +269,22 @@ export async function createApp(
       payload,
     });
     if (run.events.length > 256) run.events.shift();
-    // SSE replay is bounded, but the durable stage timeline must not lose early events.
-    if (type !== "model_stream")
-      run.trace.push({
-        type: "progress",
-        timestamp: new Date().toISOString(),
-        payload: { type, payload },
-      });
     if (!["model_usage", "model_started", "model_stream"].includes(type))
       run.stage = type;
-    void persist(run).catch(() => {});
   };
-  app.get("/api/songs/:id/runs", async (req) => {
-    const history = await library.listRuns((req.params as any).id);
-    return history.map((r) => {
-      const live = runs.get(r.id);
-      return live
-        ? {
-            ...r,
-            status: live.status,
-            stage: live.stage,
-            traceError: live.traceError,
-          }
-        : r;
+  const recordTrace = (run: Run, type: string, payload: unknown) => {
+    run.traceEvents.push({
+      traceId: ++run.traceSequence,
+      runId: run.id,
+      songId: run.songId,
+      type,
+      timestamp: new Date().toISOString(),
+      payload,
     });
-  });
-  app.get("/api/songs/:id/runs/:runId/trace", async (req, reply) => {
-    const { id, runId } = req.params as { id: string; runId: string };
-    reply.header("Cache-Control", "no-store");
-    const active = runs.get(runId);
-    if (active?.songId === id) await active.pending;
-    return library.readRun(id, runId);
-  });
+    // Keep detailed prompts/responses available for this local demo without
+    // allowing an unusually long run to grow memory without bound.
+    if (run.traceEvents.length > 4096) run.traceEvents.shift();
+  };
   app.get("/api/songs/:id/activity", async (req) => {
     const run = [...runs.values()].find(
       (r) =>
@@ -367,10 +306,10 @@ export async function createApp(
       )
     )
       throw new Error("RUN_BUSY");
-    if (!config.openaiKey && !adapter)
+    if (!config.providerKey && !adapter)
       return reply.code(422).send({
         code: "MISSING_API_KEY",
-        message: "Add OPENAI_API_KEY to the root .env and restart the server.",
+        message: "Add the selected provider API key to the root .env and restart the server.",
       });
     const run: Run = {
       id: crypto.randomUUID(),
@@ -378,27 +317,20 @@ export async function createApp(
       status: "running",
       events: [],
       sequence: 0,
+      traceEvents: [],
+      traceSequence: 0,
       error: null,
       controller: new AbortController(),
       startedAt: new Date().toISOString(),
       deadlineAt: new Date(Date.now() + config.runTimeoutMs).toISOString(),
       stage: "starting",
-      trace: [],
       pending: Promise.resolve(),
       baseRevision: song.revision,
     };
+    // Keep only a small amount of live-session state for reconnecting clients.
+    const finished = [...runs.values()].filter((entry) => terminal(entry.status));
+    for (const entry of finished.slice(0, Math.max(0, finished.length - 19))) runs.delete(entry.id);
     runs.set(run.id, run);
-    try {
-      run.trace.push({
-        type: "input",
-        timestamp: run.startedAt,
-        payload: { ...body, song },
-      });
-      await persist(run);
-    } catch (e) {
-      runs.delete(run.id);
-      throw e;
-    }
     const timer = setTimeout(() => {
       if (run.status === "running") {
         run.controller.abort();
@@ -410,28 +342,19 @@ export async function createApp(
         emit(run, "failed", run.error);
       }
     }, config.runTimeoutMs);
-    void (async () => {
+    run.pending = (async () => {
       try {
         const result = await runAgent(
           {
             song,
             instruction: body.instruction,
             selection: body.selection,
+            rhythmFormat: body.rhythmFormat,
             signal: run.controller.signal,
-            trace: async (type, payload) => {
-              if (closing) return;
-              run.trace.push({
-                type,
-                timestamp: new Date().toISOString(),
-                payload,
-              });
-              // Diagnostics must never interrupt a live model response. A later
-              // checkpoint may still succeed after a transient local write error.
-              await persist(run).catch(() => {});
-            },
             progress: (type, payload) => {
               if (run.status === "running") emit(run, type, payload);
             },
+            trace: async (type, payload) => recordTrace(run, type, payload),
           },
           adapter,
         );
@@ -445,15 +368,20 @@ export async function createApp(
               result.candidate as Candidate,
               result.next,
             );
-            return structuredClone(result.next);
+            const applied = trimUpdateToSelection(base, result.next, body.selection);
+            recordTrace(run, "selection_applied", {
+              selection: body.selection,
+              generatedDiff: musicalDiff(base, result.next),
+              appliedDiff: musicalDiff(base, applied),
+            });
+            return applied;
           },
           song.revision,
-          run.id,
         );
         run.status = "completed";
         emit(run, "completed", {
           revision: run.result.song.revision,
-          diff: musicalDiff(song, result.next),
+          diff: musicalDiff(song, run.result.song),
         });
       } catch (e) {
         if (run.status === "running") {
@@ -463,7 +391,6 @@ export async function createApp(
         }
       } finally {
         clearTimeout(timer);
-        if (!closing) await persist(run).catch(() => {});
       }
     })();
     return { runId: run.id };
@@ -475,6 +402,26 @@ export async function createApp(
       : reply.code(404).send({
           code: "NOT_FOUND",
           message: "Run unavailable; the server may have restarted.",
+        });
+  });
+  app.get("/api/runs/:id/trace", async (req, reply) => {
+    const run = runs.get((req.params as any).id);
+    return run
+      ? { run: publicRun(run), events: run.traceEvents }
+      : reply.code(404).send({
+          code: "NOT_FOUND",
+          message: "Trace unavailable; the server may have restarted or the run was evicted.",
+        });
+  });
+  app.get("/api/songs/:id/runs/latest/trace", async (req, reply) => {
+    const run = [...runs.values()]
+      .filter((entry) => entry.songId === (req.params as any).id)
+      .at(-1);
+    return run
+      ? { run: publicRun(run), events: run.traceEvents }
+      : reply.code(404).send({
+          code: "NOT_FOUND",
+          message: "No retained run trace exists for this song.",
         });
   });
   app.get("/api/runs/:id/events", async (req, reply) => {

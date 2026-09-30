@@ -20,31 +20,51 @@ const intervals: Record<ChordQuality, number[]> = {
   minorAdd9: [0, 3, 7, 14],
 };
 
-/** Resolve a chord to a close, ascending root-position voicing in the given range. */
+/**
+ * Resolve a chord to a close, ascending voicing.
+ *
+ * `range` is a preferred musical register, not a hard safety boundary. When
+ * the requested voicing cannot fit there, `fallbackRange` is used (normally
+ * the instrument's actual playable range). This lets the composer ask for a
+ * useful register without making a valid chord fail just because one tone
+ * needs to spill into a nearby octave.
+ */
 export function resolveChord(
   root: string,
   quality: ChordQuality,
   range: string,
   voicing: "root" | "first" | "second" | "third" = "root",
+  fallbackRange?: string,
 ): string[] {
-  const [low, high, ...extra] = range.split("-");
-  if (!low || !high || extra.length) throw new Error("INVALID_CHORD_REGISTER: " + range);
-  const lowMidi = pitchToMidi(low), highMidi = pitchToMidi(high), rootMidi = pitchToMidi(root + "3");
-  if (lowMidi === null || highMidi === null || rootMidi === null || lowMidi > highMidi)
+  const parseRange = (text: string) => {
+    const [low, high, ...extra] = text.split("-");
+    if (!low || !high || extra.length) throw new Error("INVALID_CHORD_REGISTER: " + text);
+    const lowMidi = pitchToMidi(low), highMidi = pitchToMidi(high);
+    if (lowMidi === null || highMidi === null || lowMidi > highMidi)
+      throw new Error("INVALID_CHORD_REGISTER_OR_ROOT");
+    return { lowMidi, highMidi };
+  };
+  const preferred = parseRange(range), fallback = fallbackRange ? parseRange(fallbackRange) : undefined;
+  const rootMidi = pitchToMidi(root + "3");
+  if (rootMidi === null)
     throw new Error("INVALID_CHORD_REGISTER_OR_ROOT");
   const tones = intervals[quality];
   const inversion = voicing === "root" ? 0 : voicing === "first" ? 1 : voicing === "second" ? 2 : 3;
   if (inversion >= tones.length) throw new Error("VOICING_NOT_AVAILABLE: " + voicing + " " + quality);
   const voicedIntervals = [...tones.slice(inversion), ...tones.slice(0, inversion).map((n) => n + 12)];
-  const pitchClass = rootMidi % 12, target = Math.max(lowMidi, Math.min(highMidi, lowMidi + 12));
-  let best: number[] | undefined, distance = Infinity;
-  for (let midi = lowMidi; midi <= highMidi; midi++) {
-    if (midi % 12 !== pitchClass) continue;
-    const candidate = voicedIntervals.map((offset) => midi + offset);
-    if (candidate.some((note) => note > highMidi)) continue;
-    const cost = Math.abs(midi - target);
-    if (cost < distance) { best = candidate; distance = cost; }
-  }
-  if (!best) throw new Error("CHORD_DOES_NOT_FIT_REGISTER: " + root + " " + quality + " " + range);
+  const pitchClass = rootMidi % 12;
+  const find = (bounds: { lowMidi: number; highMidi: number }) => {
+    let best: number[] | undefined, distance = Infinity;
+    for (let midi = bounds.lowMidi; midi <= bounds.highMidi; midi++) {
+      if (midi % 12 !== pitchClass) continue;
+      const candidate = voicedIntervals.map((offset) => midi + offset);
+      if (candidate.some((note) => note > bounds.highMidi)) continue;
+      const cost = Math.abs(midi - Math.max(bounds.lowMidi, Math.min(bounds.highMidi, bounds.lowMidi + 12)));
+      if (cost < distance) { best = candidate; distance = cost; }
+    }
+    return best;
+  };
+  const best = find(preferred) ?? (fallback ? find(fallback) : undefined);
+  if (!best) throw new Error("CHORD_DOES_NOT_FIT_PLAYABLE_RANGE: " + root + " " + quality + " " + (fallbackRange ?? range));
   return best.map(midiToPitch);
 }

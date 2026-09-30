@@ -4,9 +4,9 @@ import { newSong, frac, type Selection } from "@eight-bit/core";
 import { runAgent } from "./agent.js";
 import { getConfig } from "./config.js";
 const config = getConfig();
-if (!config.openaiKey) {
+if (!config.providerKey) {
   console.log(
-    "LIVE_EVAL_PENDING: add OPENAI_API_KEY to the root .env. No model calls made.",
+    "LIVE_EVAL_PENDING: add the selected provider API key to the root .env. No model calls made.",
   );
   process.exit(0);
 }
@@ -133,6 +133,7 @@ await fs.writeFile(
   path.join(out, "results.json"),
   JSON.stringify(
     {
+      provider: config.provider,
       composerModel: config.composerModel,
       orchestratorModel: config.orchestratorModel,
       results,

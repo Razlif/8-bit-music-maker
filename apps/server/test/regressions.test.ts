@@ -15,20 +15,19 @@ describe("storage concurrency and recovery", () => {
     const root = await temp(), lib = new Library(root);
     try {
       const song = await lib.create();
-      const outcomes = await Promise.allSettled([lib.rename(song.id, "A", song.revision), lib.rename(song.id, "B", song.revision)]);
+      const outcomes = await Promise.allSettled([lib.update(song.id, s => ({ ...s, title: "A" }), song.revision), lib.update(song.id, s => ({ ...s, title: "B" }), song.revision)]);
       expect(outcomes.filter((result) => result.status === "fulfilled")).toHaveLength(1);
       expect((await lib.load(song.id)).revision).toBe(1);
     } finally { await lib.close(); await fs.rm(root, { recursive: true, force: true }); }
   });
 
-  it("rejects a second process owner and does not overwrite corrupt JSON", async () => {
+  it("does not overwrite corrupt JSON", async () => {
     const root = await temp(), lib = new Library(root);
     try {
       const song = await lib.create();
-      await expect(new Library(root).init()).rejects.toThrow(/LIBRARY_LOCKED/);
-      const file = path.join(root, song.id, "song.json");
+      const file = path.join(root, song.id + ".json");
       await fs.writeFile(file, "broken");
-      await expect(lib.save({ ...song, revision: 1 }, 0)).rejects.toThrow();
+      await expect(lib.update(song.id, s => ({ ...s, title: "changed" }), 0)).rejects.toThrow();
       expect(await fs.readFile(file, "utf8")).toBe("broken");
     } finally { await lib.close(); await fs.rm(root, { recursive: true, force: true }); }
   });

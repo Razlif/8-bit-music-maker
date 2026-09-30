@@ -66,7 +66,7 @@ it("rejects malformed dispatcher output before any worker runs", async () => {
   expect(entries.some((entry) => entry.type === "planning_context")).toBe(true);
 });
 
-it("persists trace history across server restart with the starting snapshot and validation", async () => {
+it("persists only music across restart; live run state and traces are not stored", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "chip-trace-"));
   const config = { rootDir: process.cwd(), songsDir: root, port: 3999, runTimeoutMs: 15000, composerModel: "test", orchestratorModel: "test" };
   let instance = await createApp(config, fake);
@@ -77,12 +77,11 @@ it("persists trace history across server restart with the starting snapshot and 
     expect(runId).toBeTruthy();
     await vi.waitFor(async () => expect((await instance.app.inject(`/api/runs/${runId}`)).json().status).toBe("completed"), { timeout: 10000 });
     const url = `/api/songs/${song.id}/runs/${runId}/trace`;
-    const trace = (await instance.app.inject(url)).json();
-    expect(trace.trace[0].payload.song.id).toBe(song.id);
-    expect(trace.trace.some((e: any) => e.type === "aggregate_validation_passed")).toBe(true);
+    expect((await instance.app.inject(url)).statusCode).toBe(404);
+    expect(await fs.readdir(root)).toEqual([song.id + ".json"]);
     await instance.app.close();
     instance = await createApp(config, fake);
-    expect((await instance.app.inject(url)).json().status).toBe("completed");
-    expect((await instance.app.inject(`/api/songs/${song.id}/runs`)).json()[0].id).toBe(runId);
+    expect((await instance.app.inject(`/api/runs/${runId}`)).statusCode).toBe(404);
+    expect((await instance.library.load(song.id)).revision).toBe(1);
   } finally { await instance.app.close(); await fs.rm(root, { recursive: true, force: true }); }
 });

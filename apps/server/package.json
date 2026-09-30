@@ -11,13 +11,15 @@
     "eval:live": "tsx src/eval-live.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "@eight-bit/core": "*",
     "@fastify/cors": "^10.0.2",
+    "@langchain/core": "^1.1.48",
     "@langchain/langgraph": "^1.4.16",
     "fastify": "^5.3.3",
     "openai": "^4.104.0",
     "zod": "^3.25.56",
-    "@langchain/core": "^1.1.48"
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@types/node": "^22.15.21",

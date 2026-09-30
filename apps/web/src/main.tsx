@@ -16,7 +16,7 @@ import {
 } from "@eight-bit/core";
 import { Player, exportWav, playCassetteClick } from "./audio";
 import "./styles.css";
-import { AgentMonitor } from "./AgentMonitor";
+import { shortSpeech } from "./companion-speech";
 import { DictationButton } from "./DictationButton";
 import { EffectsMaker } from "./EffectsMaker";
 
@@ -37,13 +37,13 @@ type Summary = {
   revision: number | null;
   available: boolean;
   error?: string;
-  history?: string;
 };
 type TrackDraft = {
   name: string;
   instrumentId: string;
   trackType: "melodic" | "harmonic";
 };
+const KEY_ROOTS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
 const player = new Player();
 type CompanionScene = "idle" | "keyboard" | "dj" | "thinking" | "celebrate" | "dance" | "repairing";
 type WorkPhase = "orchestration" | "rhythm" | "pitch" | "validation";
@@ -82,6 +82,7 @@ const modelPurposePhases: Record<string, WorkPhase> = {
   legacy_music_plan: "orchestration",
   music_plan: "orchestration",
   rhythm_grid: "rhythm",
+  rhythm_notation: "rhythm",
   pitch_fill: "pitch",
   legacy_music_replacement: "pitch",
   music_candidate: "pitch",
@@ -94,7 +95,8 @@ function App() {
     [song, setSong] = useState<Song | null>(null),
     [selected, setSelected] = useState<Selection>({ kind: "song" });
   const [trackId, setTrackId] = useState(""),
-    [prompt, setPrompt] = useState("");
+    [prompt, setPrompt] = useState(""),
+    [rhythmFormat, setRhythmFormat] = useState<"json" | "notation">("json");
   const [status, setStatus] = useState("Ready"),
     [error, setError] = useState(""),
     [agentThought, setAgentThought] = useState("Drop in a thought. I’ll turn it into a loop."),
@@ -110,9 +112,6 @@ function App() {
     [launching, setLaunching] = useState(false),
     [busy, setBusy] = useState(false),
     [snap, setSnap] = useState(4);
-  const [history, setHistory] = useState<
-    Array<{ commit: string; message: string }>
-  >([]);
   const events = useRef<EventSource | null>(null),
     pendingCommand = useRef<Promise<void> | null>(null),
     commandFailed = useRef(false),
@@ -276,10 +275,9 @@ function App() {
       setTrackId(next.music.tracks[0]?.id ?? "");
       setSelected({ kind: "song" });
       setSolo(new Set());
-      setHistory([]);
       setError("");
       setRenameOpen(false);
-      setStatus("Loaded · revision " + next.revision);
+      setStatus("Saved");
       stopWorkCues();
       clearSpeechHold();
       problemActive.current = false;
@@ -292,7 +290,11 @@ function App() {
       showError(e);
     }
   };
+  const creating = useRef(false);
   const create = async () => {
+    if (creating.current || launching) return;
+    creating.current = true;
+    setBusy(true);
     try {
       if (!(await guardSwitch())) return;
       stop();
@@ -301,7 +303,6 @@ function App() {
       setTrackId(next.music.tracks[0]?.id ?? "");
       setSelected({ kind: "song" });
       setSolo(new Set());
-      setHistory([]);
       setError("");
       setRenameOpen(false);
       setStatus("New song ready");
@@ -314,7 +315,7 @@ function App() {
       await refresh();
     } catch (e) {
       showError(e);
-    }
+    } finally { creating.current = false; setBusy(false); }
   };
   const command = (cmd: MusicCommand): Promise<void> => {
     if (pendingCommand.current) return pendingCommand.current.then(() => command(cmd));
@@ -331,11 +332,7 @@ function App() {
       });
       setSong(result.song);
       songRef.current = result.song;
-      setStatus(
-        result.history === "pending"
-          ? "Saved · history pending"
-          : "Saved · revision " + result.song.revision,
-      );
+      setStatus("Saved");
       if (player.playing && cmd.type !== "set_mix")
         player.switchAtBar(result.song);
       await refresh();
@@ -439,6 +436,10 @@ function App() {
       const e = JSON.parse(event.data);
       if (e.runId !== activeRun.current || e.songId !== songRef.current?.id)
         return;
+      if (e.type === "model_stream") {
+        const speech = shortSpeech(e.payload?.summary);
+        if (speech) setModelSpeech(speech);
+      }
       if (
         [
           "failed",
@@ -501,6 +502,7 @@ function App() {
       if (!current) return;
       const result = await post("/songs/" + current.id + "/runs", {
         instruction: prompt,
+        rhythmFormat,
         // AI composition is whole-song in the demo. Manual selection remains
         // available for playback/editing, but does not silently narrow the
         // dispatcher contract.
@@ -611,9 +613,8 @@ function App() {
                 <span>
                   <b>{s.title}</b>
                   <small>
-                    {s.available ? "revision " + s.revision : s.error}
+                    {s.available ? "Saved demo" : s.error}
                   </small>
-                  {s.history === "pending" && <small>History pending</small>}
                 </span>
               </button>
             )) : (
@@ -630,7 +631,6 @@ function App() {
                   <small>OPEN SONG</small>
                   <strong>{song.title}</strong>
                 </span>
-                <code>r{song.revision}</code>
               </div>
               {renameOpen ? (
                 <form
@@ -692,65 +692,11 @@ function App() {
               >
                 Duplicate
               </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  api("/songs/" + song.id + "/history")
-                    .then(setHistory)
-                    .catch(showError)
-                }
-              >
-                History / undo
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  post("/songs/" + song.id + "/history/retry")
-                    .then((r) => {
-                      setStatus("History: " + r.history);
-                      return refresh();
-                    })
-                    .catch(showError)
-                }
-              >
-                Retry history
-              </button>
-              {history.map((h, i) => (
-                <button
-                  key={h.commit}
-                  disabled={i === 0 || busy}
-                  onClick={async () => {
-                    try {
-                      const r = await post("/songs/" + song.id + "/restore", {
-                        commit: h.commit,
-                        expectedRevision: song.revision,
-                      });
-                      setSong(r.song);
-                      songRef.current = r.song;
-                      setHistory([]);
-                      setStatus(
-                        r.history === "pending"
-                          ? "Restored · history pending"
-                          : "Restored · revision " + r.song.revision,
-                      );
-                      stop();
-                      await refresh();
-                    } catch (e) {
-                      showError(e);
-                    }
-                  }}
-                >
-                  Restore {h.message}
-                </button>
-              ))}
+
             </div>
           )}
           <small className="local-note">
-            Local files, Git-backed history.
-            <br />
-            Switching waits for saves.
+            Changes save automatically to one local song file.
           </small>
         </aside>
       </details>
@@ -804,6 +750,18 @@ function App() {
                   restart. Manual editing and playback work without a key.
                 </p>
               )}
+                <label className="rhythm-format-control">
+                  Rhythm output
+                  <select
+                    aria-label="Rhythm output format"
+                    value={rhythmFormat}
+                    disabled={!!runId || launching || busy}
+                    onChange={(event) => setRhythmFormat(event.target.value as "json" | "notation")}
+                  >
+                    <option value="json">JSON events</option>
+                    <option value="notation">x / - / . notation</option>
+                  </select>
+                </label>
                 <div className="request-line">
                 <textarea
                   aria-label="Composer request"
@@ -859,15 +817,18 @@ function App() {
                     disabled={busy || !!runId || launching}
                     commit={(bpm) => command({ type: "set_tempo", bpm })}
                   />
-                  <button className={"floppy-export" + (exporting ? " writing" : "")} disabled={busy || exporting} onClick={download} aria-label={exporting ? "Exporting WAV" : "Export WAV"} title="Export WAV">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" shapeRendering="crispEdges">
-                      <path d="M2 2h17l3 3v17H2z" fill="#b3a2cf" />
-                      <path d="M6 2h11v8H6z" fill="#d8d4cc" /><path d="M13 3h3v5h-3z" fill="#353342" />
-                      <path d="M6 13h12v9H6z" fill="#e4ddcc" /><path d="M8 16h8v1H8zm0 3h6v1H8z" fill="#77718e" />
-                      <path className="disk-light" d="M19 18h2v2h-2z" />
-                    </svg>
-                    <span>{exporting ? "Writing…" : "WAV"}</span>
-                  </button>
+                  <label className="transport-control">
+                    Key
+                    <select
+                      aria-label="Key"
+                      value={song.music.key?.root ?? ""}
+                      disabled={busy || !!runId || launching}
+                      onChange={(event) => void command({ type: "set_key", root: event.target.value || null })}
+                    >
+                      <option value="">—</option>
+                      {KEY_ROOTS.map((root) => <option key={root} value={root}>{root}</option>)}
+                    </select>
+                  </label>
                   <label className="transport-control">
                     Bars
                     <select
@@ -893,26 +854,6 @@ function App() {
                       ))}
                     </select>
                   </label>
-                  <label className="transport-control">
-                    Snap
-                    <select
-                      aria-label="Snap"
-                      value={snap}
-                      onChange={(e) => setSnap(Number(e.target.value))}
-                    >
-                      {[
-                        [2, "1/8"],
-                        [3, "Triplet"],
-                        [4, "1/16"],
-                        [6, "Sixteenth triplet"],
-                        [8, "1/32"],
-                      ].map(([n, label]) => (
-                        <option key={n} value={n}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
                   <button
                     disabled={busy || song.music.tracks.length >= 8}
                     onClick={openTrackCreator}
@@ -922,8 +863,17 @@ function App() {
                   <a className="tool-link" href="/instrument-lab.html" target="_blank" rel="noreferrer">
                     ♫ Instrument Lab
                   </a>
+                  <button className={"floppy-export" + (exporting ? " writing" : "")} disabled={busy || exporting} onClick={download} aria-label={exporting ? "Exporting WAV" : "Export WAV"} title="Export WAV">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" shapeRendering="crispEdges">
+                      <path d="M2 2h17l3 3v17H2z" fill="#b3a2cf" />
+                      <path d="M6 2h11v8H6z" fill="#d8d4cc" /><path d="M13 3h3v5h-3z" fill="#353342" />
+                      <path d="M6 13h12v9H6z" fill="#e4ddcc" /><path d="M8 16h8v1H8zm0 3h6v1H8z" fill="#77718e" />
+                      <path className="disk-light" d="M19 18h2v2h-2z" />
+                    </svg>
+                    <span>{exporting ? "Writing…" : "WAV"}</span>
+                  </button>
                   <button disabled={busy || !!runId || launching} onClick={async () => {
-                    if (!window.confirm("Reset this song to six empty default tracks, 4 bars and 120 BPM? The title stays; the previous version remains in Git history.")) return;
+                    if (!window.confirm("Reset this song to six empty default tracks, 4 bars and 120 BPM? The title stays. This replaces the saved music.")) return;
                     stop();
                     await command({ type: "reset_song" });
                     setSelected({ kind: "song" });
@@ -1050,6 +1000,26 @@ function App() {
                     </summary>
                     <div className="editor-toolbar">
                       <strong>{track.name}</strong>
+                      <label className="transport-control">
+                        Snap
+                        <select
+                          aria-label="Snap"
+                          value={snap}
+                          onChange={(e) => setSnap(Number(e.target.value))}
+                        >
+                          {[
+                            [2, "1/8"],
+                            [3, "Triplet"],
+                            [4, "1/16"],
+                            [6, "Sixteenth triplet"],
+                            [8, "1/32"],
+                          ].map(([n, label]) => (
+                            <option key={n} value={n}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       <button
                         disabled={busy}
                         onClick={() => {
@@ -1121,25 +1091,19 @@ function App() {
                 )}
               </section>
             </div>
-            <AgentMonitor
-              key={song.id}
-              songId={song.id}
-              runId={runId}
-              onModelSpeech={setModelSpeech}
-              hidden
-            />
+
           </>
         ) : (
-          <div className="empty">
-            <div className="empty-icon">♫</div>
-            <h2>Small sounds. Big ideas.</h2>
-            <p>
-              Create a loop, sketch some notes, and shape it with the composer.
-            </p>
-            <button className="primary" onClick={create}>
-              Create first song
-            </button>
-          </div>
+          <section className="demo-library" aria-label="Demo library">
+            <h2>Your demos</h2>
+            <button className="primary" disabled={busy || launching} onClick={() => void create()}>＋ New demo</button>
+            <p>{songs.length ? "Pick a saved demo to continue." : "No demos yet. Create one when you’re ready."}</p>
+            <div className="demo-cards">
+              {songs.map((entry) => <button key={entry.id} disabled={!entry.available || busy} onClick={() => void open(entry.id)} title={entry.error}>
+                <span aria-hidden="true">♫</span><strong>{entry.title}</strong><small>{entry.available ? "Load demo" : "Unreadable file"}</small>
+              </button>)}
+            </div>
+          </section>
         )}
           </>
         )}
@@ -1469,6 +1433,15 @@ function Timeline({
       ),
     };
   };
+  const selectedCell = (d: { beat: number; index: number; ruler: boolean }) =>
+    selection.kind === "regions" &&
+    selection.regions.some((region) =>
+      d.beat >= value(region.start) &&
+      d.beat < value(region.end) &&
+      (d.ruler
+        ? song.music.tracks.every((track) => region.trackIds.includes(track.id))
+        : !!song.music.tracks[d.index] && region.trackIds.includes(song.music.tracks[d.index].id)),
+    );
   return (
     <div className="timeline">
       <div className="track-heads">
@@ -1592,7 +1565,9 @@ function Timeline({
         onPointerUp={(e) => {
           if (drag.current) {
             const d = drag.current;
-            if (!d.moved)
+            if (!d.moved && selectedCell(d))
+              select({ kind: "song" });
+            else if (!d.moved)
               select({
                 kind: "regions",
                 regions: [
@@ -1674,16 +1649,21 @@ function Timeline({
                 onPointerDown={(e) => {
                   e.stopPropagation();
                   focus(t.id);
+                  if (selection.kind === "regions" && selection.regions.some((region) =>
+                    region.trackIds.includes(t.id) &&
+                    value(n.start) >= value(region.start) &&
+                    value(n.start) < value(region.end))) {
+                    select({ kind: "song" });
+                    return;
+                  }
                   const ids =
                     e.shiftKey && selection.kind === "notes"
                       ? selection.noteIds
                       : [];
-                  select({
-                    kind: "notes",
-                    noteIds: ids.includes(n.id)
-                      ? ids.filter((id) => id !== n.id)
-                      : [...ids, n.id],
-                  });
+                  const noteIds = ids.includes(n.id)
+                    ? ids.filter((id) => id !== n.id)
+                    : [...ids, n.id];
+                  select(noteIds.length ? { kind: "notes", noteIds } : { kind: "song" });
                 }}
               >
                 <title>{n.kind === "pitched" ? n.pitch : "hit"}</title>

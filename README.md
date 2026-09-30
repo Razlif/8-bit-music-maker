@@ -1,49 +1,84 @@
-# 8-bit Music Maker
+# CHIP Studio
 
-**Start here:** [Run the UI, configure `.env`, and use the editor](RUNNING.md). See [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) for verification evidence and pending live-model gates.
+A local music demo maker with a retro pixel-art interface. Describe the music you want, listen, refine it, and export a WAV. Includes editable tracks, an instrument catalog, an animated companion, and an Effects Maker for short sound effects.
 
-**Inspect the AI:** [Exact prompt templates, supplied data, model access and trace debugging](AI-PROMPTS.md). The UI's AI activity panel shows independent progress and locally saved request/response traces.
+## Install and run
 
-A local chiptune studio for making music with an agent: describe a song, listen, select a passage, and refine it through conversation or direct note editing.
+You need **Node.js 22.16 or newer**, npm (included with Node), and an API key for OpenAI, OpenRouter, or Anthropic to generate music.
 
-The demo includes up to eight instrument tracks, a visual timeline and note editor, browser playback, one validated AI composition update, WAV export, and local project files tracked with Git. A fresh song starts with six empty channels—lead, bass, kick, hi-hat, snare, and harmonic Chip Pad. Broad song-creation requests compose all six; requests for specific instrumentation leave the others empty. Live OpenAI musical quality remains a separate evaluation gate.
+```sh
+git clone https://github.com/Razlif/8-bit-music-maker.git
+cd 8-bit-music-maker
+npm install
+```
 
-The initial meter is 4/4. Weighted beat rows express equal subdivisions, long–short rhythms, rests, and sustained notes. Every track has manual volume, mute, and solo controls for mixing during playback.
+Copy `.env.example` to `.env` in the project folder:
 
-## Specification
+```powershell
+# Windows PowerShell
+Copy-Item .env.example .env
+```
 
-Start with [ROADMAP.md](ROADMAP.md) for the execution handoff: 11 ordered implementation slices, shared contracts, code sketches, defaults, verification gates, and edge cases. It is written for a coding agent with no conversation history.
+```sh
+# macOS / Linux
+cp .env.example .env
+```
 
-See [SPEC.md](SPEC.md) for product requirements: UI, musical notation, deterministic editing contracts, request orchestration, persistence, and acceptance criteria.
+Open `.env` in a text editor. For OpenAI, set:
 
-Read [LANGUAGE-TUTORIAL.md](LANGUAGE-TUTORIAL.md) for the syntax and playable audio examples, generated directly from the notation.
+```dotenv
+AI_PROVIDER=openai
+OPENAI_API_KEY=your-api-key
+```
 
-The agent works with beat-grouped musical grids and instrument presets. Deterministic backend workers translate and validate one aggregate update before saving it. LangGraph coordinates independent requests; the accepted song provides persistent musical context.
+Model defaults are in `.env.example`. To choose your own models, set `AI_ORCHESTRATOR_MODEL` for the composer that plans the arrangement and `AI_COMPOSER_MODEL` for its workers and effects. Use model IDs available to your provider account.
 
-## Editing scope
+For another provider, set `AI_PROVIDER=openrouter` with `OPENROUTER_API_KEY`, or `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY`. You only need the key for your chosen provider. Microphone transcription additionally requires an OpenAI key.
 
-Select a horizontal passage on one track, a vertical time slice across tracks, a rectangular region, a single note, or selected notes. Full-track and whole-song edits are also supported.
+Build and start:
 
-Every agent request clearly separates **the requested task**, **backend-issued edit permissions**, and **read-only reference context**. Surrounding beats, other instruments, harmony, and guidance can help the model without becoming editable. Showing or returning a complete beat does not give permission to change everything inside it.
+```sh
+npm run build
+npm start
+```
 
-The backend validates the actual musical changes against stable event IDs, allowed time regions, writable fields, and explicit insertion/deletion rights. It preserves protected notes, silence, timing, and mix settings; rejects an entire out-of-scope proposal; and checks the song revision again before acceptance. Notes crossing a time-selection boundary stay protected unless the user explicitly includes them. Any required scope expansion is made visible for user approval.
+Open **http://127.0.0.1:3001**. Keep the terminal running while using the app. On subsequent launches, run `npm start`; rebuild after updating the code. Restart the server after changing `.env`.
 
-See SPEC.md section 7 for the context contract, boundary rules, output modes, and validation examples.
+## Make a demo
 
-Implementation stack: TypeScript throughout; LangGraph.js and Fastify on a local Node.js backend; React, Vite, and Tone.js in the browser. The dispatcher defaults to GPT-6 Luna via `OPENAI_ORCHESTRATOR_MODEL`; rhythm and pitch workers default to GPT-5 nano via `OPENAI_COMPOSER_MODEL`. There is no intent classifier or chat-answer route. Every AI request uses one graph: whole-song context → explicit per-track tasks → bounded rhythm workers → deterministic percussion or pitch workers → one validated aggregate update. The UI selection remains available for manual editing/playback but does not narrow AI composition in the demo. See [AI-PROMPTS.md](AI-PROMPTS.md) for the current contract.
+1. Create a **New demo** or load a saved song.
+2. Set the number of bars and enter a request, such as “An eight-bar reggae groove with a warm bass and playful melody.”
+3. Click the cassette to compose. The companion displays progress and available model reasoning summaries.
+4. Play the music, adjust track volumes, change instruments, or edit notes.
+5. Ask for revisions, then export a WAV with the floppy-disk button.
 
-## Future experiments
+To edit just part of a song, select a track or highlight an area before submitting your request. The AI receives the full song for context, but only changes inside your selection are saved. Click inside the selection or press Escape to clear it and return to the whole song.
 
-Jev (TypeSafe) could select coordinated rhythmic patterns from a curated library, with a generative model composing pitches and phrase variations. Small pitch-contour patterns may also be useful. This is deferred from the demo; measure musical quality and end-to-end latency against the initial implementation before adding it. OpenRouter support is another possible later extension.
+Existing notes crossing a selection boundary stay intact. New notes are clipped to the available selected space. Partial edits preserve other tracks, instruments, mix settings, and the song's key and tempo.
 
-## Local song library
+The **Rhythm output** control offers two experimental ways for the AI to describe rhythm: JSON events and compact notation. Both use the same playback engine. Try either with the same request on separate songs.
 
-The planned app creates a `songs/` directory under the application root on first launch. No database is required. The library sidebar lists song titles and last-modified times, with New, Open, Rename, and Duplicate actions. One song is open at a time.
+The **Effects Maker** tab generates short sound effects you can play and export. **Instrument Lab** lets you audition the available sounds.
 
-Each song lives in `songs/<song-uuid>/`, with one authoritative `song.json`, a generated readable `song.txt`, and its own local Git history. The application repository ignores `songs/`, so user music is separate from application code. Renaming changes the title, not the folder or ID; duplicating creates an independent song and history. An optional backend setting can point to another library directory.
+## Saving your work
 
-The song document stores format version, stable identity, timestamps, edit revision, brief, musical settings, tracks, saved mix levels, and notes with exact fractional timing. Saves are validated and atomic; accepted changes are committed locally. Git failures are reported separately from file-save success. See SPEC.md section 10 for storage, recovery, and library behavior.
+Songs save automatically as individual JSON files in `songs/`. Rename a song by clicking its title. The library supports loading and duplicating songs; refreshing the page does not create another song.
 
-## Status
+Back up the `songs/` folder to keep your demos. Your `.env` and saved songs are ignored by Git. No database or cloud storage is required. AI requests go to your selected provider and use its API billing.
 
-The implementation is underway. Follow [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) for verified slices, pending gates, and known limitations. The existing audio examples are deterministic demonstrations, not evidence of model composition quality.
+## Troubleshooting
+
+- **Page does not open:** keep `npm start` running and check its terminal output. The default port is 3001.
+- **AI request fails:** check your provider, key, model IDs, and available API credit, then restart the server.
+- **UI changes are missing:** run `npm run build`, restart, and reload the page.
+- **No microphone transcription:** add `OPENAI_API_KEY` and allow microphone access, or type your request.
+
+Manual editing and playback work without an API key.
+
+## For developers
+
+Run `npm run dev` for automatic reloads, then open http://127.0.0.1:5173. Run `npm test` and `npm run typecheck` to check changes.
+
+The app uses React/Vite, a Node/Fastify backend, LangGraph.js for orchestration, and Tone.js for audio. The AI plans tasks per track; rhythm workers create timing, pitch workers fill melodic notes, and the backend builds chords, validates the result, and applies the selected area.
+
+Additional references: [running and troubleshooting](RUNNING.md), [AI prompts](AI-PROMPTS.md), [music language](LANGUAGE-TUTORIAL.md), and [product specification](SPEC.md). The roadmap and implementation status are development records; you do not need them to use the app. Worker tutorials in `apps/server/src/skills/` are loaded into AI prompts at runtime.

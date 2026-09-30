@@ -12,6 +12,7 @@ import {
   validateCandidate,
   listInstruments,
   applyCommand,
+  resolveChord,
 } from "../src/index.js";
 describe("core music contracts", () => {
   it("resets musical content to defaults without replacing song identity or history", () => {
@@ -76,6 +77,28 @@ describe("core music contracts", () => {
       instrumentId: "chip_pad",
       type: "harmonic",
     });
+  });
+  it("stores a root-only key without requiring a mode", () => {
+    const song = newSong(crypto.randomUUID());
+    song.music.tracks[0].notes = [{
+      id: "lead-c4",
+      kind: "pitched",
+      pitch: "C4",
+      start: frac(0),
+      duration: frac(1),
+      velocity: 100,
+    }];
+    const rooted = applyCommand(song, { type: "set_key", root: "C" });
+    const keyed = applyCommand(rooted, { type: "set_key", root: "D" });
+    expect(keyed.music.key).toEqual({ root: "D" });
+    expect(keyed.music.tracks[0].notes[0]).toMatchObject({ pitch: "D4" });
+    expect(applyCommand(keyed, { type: "set_key", root: null }).music.key).toBeNull();
+    expect(applyCommand(keyed, { type: "set_key", root: null }).music.tracks[0].notes[0]).toMatchObject({ pitch: "D4" });
+  });
+  it("treats a harmonic register as a preference and falls back to playable range", () => {
+    expect(resolveChord("B", "dominant7", "C4-E5", "root", "C3-C6")).toEqual([
+      "B3", "D#4", "F#4", "A4",
+    ]);
   });
   it("rejects instrument swaps that would invalidate existing notes", () => {
     const song = newSong(crypto.randomUUID());

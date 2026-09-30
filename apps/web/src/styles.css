@@ -752,7 +752,6 @@ summary:focus-visible {
   min-width: 0;
   text-align: left;
 }
-.timeline .track-heads { width: 290px; }
 .track-label-row { display: flex; align-items: center; gap: 10px; min-width: 0; height: 24px; flex: none; }
 .inline-name { background: transparent; border: 0; padding: 0; color: inherit; font: inherit; text-align: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
 .inline-name:hover { text-decoration: underline dotted; text-underline-offset: 5px; }
@@ -762,6 +761,13 @@ summary:focus-visible {
 .track-instrument span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .track-instrument .instrument-icon { flex: none; width: 18px; height: 18px; }
 .topbar-title .inline-name { max-width: 100%; }
+.demo-library { max-width: 900px; margin: 36px auto; padding: 24px; }
+.demo-library h2 { font-size: 26px; font-weight: 400; }
+.demo-library p { color: var(--muted); margin: 24px 0; }
+.demo-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+.demo-cards button { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 20px; text-align: left; }
+.demo-cards strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.demo-cards small { color: var(--muted); }
 .track-name-copy strong,
 .track-name-copy small {
   overflow: hidden;
@@ -1580,6 +1586,25 @@ summary:focus-visible {
 
 /* Compact composer deck: the cassette is an intentional action bay, not a
    floating button inside the text field. */
+.rhythm-format-control {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 8px auto;
+  color: #aaa5c4;
+  font: 10px "Press Start 2P", monospace;
+  letter-spacing: .04em;
+}
+.rhythm-format-control select {
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid #4a4960;
+  border-radius: 0;
+  color: #eeeaf9;
+  background: #1d202c;
+  font: 11px "VT323", monospace;
+}
 .request-line {
   position: relative;
   display: grid;

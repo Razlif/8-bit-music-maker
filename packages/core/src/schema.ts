@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { pitchToMidi, midiToPitch, INSTRUMENTS } from "./instruments.js";
 import { add, cmp, frac, type Fraction } from "./fractions.js";
+export const KeyRootSchema = z.string().regex(/^[A-G][#b]?$/);
 export const FractionSchema = z
   .object({ n: z.number().int().safe(), d: z.number().int().safe().positive() })
   .strict();
@@ -53,8 +54,8 @@ export const SongSchema = z
         bars: z.number().int().min(1).max(32),
         key: z
           .object({
-            root: z.string().regex(/^[A-G][#b]?$/),
-            mode: z.string().min(1).max(40),
+            root: KeyRootSchema,
+            mode: z.string().min(1).max(40).optional(),
           })
           .strict()
           .nullable(),

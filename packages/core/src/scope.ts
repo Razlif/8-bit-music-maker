@@ -214,7 +214,9 @@ export function resolveScope(
             target: "track:" + id,
             fields: ["volumeDb", "muted"],
           }))
-        : [],
+        : operation === "compose"
+          ? [{ target: "song", fields: ["key"] }]
+          : [],
     requiredRows: [...coverage.values()],
   };
 }

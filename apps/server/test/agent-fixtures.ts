@@ -1,7 +1,7 @@
 import type { ModelAdapter } from "../src/agent.js";
 export const snippetOf = (prompt: string): any[] => JSON.parse(prompt.split("EDITABLE_SNIPPET\n")[1].split("\nOUTPUT_CONTRACT")[0]);
 export const orchestrationFor = (prompt: string) => {
-  const context = JSON.parse(prompt.split("SONG_CONTEXT\n")[1].split("\nINSTRUMENT_CATALOG")[0]);
+  const context = JSON.parse(prompt.split("SONG_CONTEXT\n")[1].split("\nUI_SELECTION")[0]);
   return {
     brief: "Use each existing track across the loop.",
     tasks: context.tracks.map((track: any) => {
@@ -12,30 +12,36 @@ export const orchestrationFor = (prompt: string) => {
         instrumentId: track.instrument,
         startBar: 1,
         endBar: context.bars,
-        type: "melodic",
+        type: track.type,
         rhythmInstruction: hit ? "sparse quarter-note attacks with space" : "quarter-note pulse with a small repeated cell",
         sections: [{ startBar: 1, endBar: context.bars, instruction: "repeat a clear one-bar cell and return at the end" }],
         harmony: hit ? null : "C major",
         register: hit ? null : track.instrument === "chip_bass" ? "C2-G2" : "C4-G4",
         pitchInstruction: hit ? null : "use a compact resolving motif",
-        voicing: null,
+        voicing: track.type === "harmonic" ? "root" : null,
       };
     }),
     newTracks: [],
-    progression: [],
+    progression: context.tracks.some((track: any) => track.type === "harmonic") ? [{ startBeat: 0, endBeat: context.bars * 4, root: "C", quality: "major" }] : [],
   };
 };
 export const planFor = orchestrationFor;
-export const testPlan = orchestrationFor("SONG_CONTEXT\n{\"bars\":1,\"tracks\":[]}\nINSTRUMENT_CATALOG");
+export const testPlan = orchestrationFor("SONG_CONTEXT\n{\"bars\":1,\"tracks\":[]}\nUI_SELECTION\n{}\nINSTRUMENT_CATALOG");
 export const fake: ModelAdapter = {
   plan: async () => ({ brief: "legacy test plan", targets: [{ track: "t1", startBar: 1, endBar: 1 }], newTrack: null, harmony: "C major", groove: "pulse", motif: "cell", development: "return", workOrders: [{ id: "w1", track: "t1", startBar: 1, endBar: 1, rhythmBrief: "pulse", pitchBrief: "motif" }] }),
   orchestrate: async prompt => orchestrationFor(prompt),
   rhythm: async prompt => {
     const start = prompt.lastIndexOf("TARGET_ROWS\n") + "TARGET_ROWS\n".length;
-    const end = prompt.indexOf("\nRHYTHM_LANGUAGE", start);
-    const rows = JSON.parse(prompt.slice(start, end));
+    const rows = JSON.parse(prompt.slice(start).split("\nOUTPUT_CONTRACT")[0]);
     const hit = /instrumentId":"(?:kick|snare|closed_hat)/.test(prompt);
-    return { rows: rows.map((row: any) => ({ rowRef: row.rowRef, pattern: row.beat === 1 ? (hit ? "x..." : "x---") : "...." })) };
+    return { rows: rows.map((row: any) => ({
+      rowRef: row.rowRef,
+      events: row.beat === 1
+        ? hit
+          ? [{ token: "attack", weight: 1 }, { token: "rest", weight: 3 }]
+          : [{ token: "attack", weight: 1 }, { token: "hold", weight: 3 }]
+        : [{ token: "rest", weight: 1 }],
+    })) };
   },
   pitch: async prompt => {
     const rows = JSON.parse(prompt.split("LOCKED_RHYTHM\n")[1].split("\nPITCH_RULE")[0]);

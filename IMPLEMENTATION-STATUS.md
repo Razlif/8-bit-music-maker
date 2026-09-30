@@ -1,5 +1,61 @@
 # Implementation and repair status
 
+## User-facing setup and selection-limited saves — 2026-09-30
+
+Rewrote README around cloning, environment setup, install/build/start, basic use, and saving. Removed screenshot links into test output; screenshots can be added later.
+
+Added deterministic final-save projection for both rhythm formats. Whole-song results pass through; partial selections retain original metadata and track settings, preserve protected notes, and clip generated notes to selected free spans. Selection unions are normalized to prevent duplicate inserts. Selected individual chord voices preserve protected sibling timing. The completion diff now reflects the saved result, and `selection_applied` traces expose generated/applied diffs.
+
+Verification: 31 core tests passed; 32 server tests initially passed and the notation HTTP test required a notation-capable fake (the existing fixture returned JSON events). After correcting that fixture, both HTTP selection tests passed. Workspace typecheck passed. Core/server builds passed; web production build passed after retrying outside the sandbox for Vite config access. Git diff whitespace check passed. No live provider calls were made.
+
+## Selectable rhythm-output experiment — 2026-09-28
+
+Added a **Rhythm output** selector with `JSON events` (default) and `x / - / . notation`. Both formats use the same dispatcher task and target rows. The notation worker returns one weighted pattern string per row; the server parses it into the same attack/hold/rest event structure before pitch filling, percussion/chord realization, validation, and save. Added explicit one-beat triplet, weighted swing, and two-beat triplet examples to both worker tutorials. Removed the stale instrument-specific `x/-/.` examples from the unused legacy rhythm prompt, and documented the two live prompt variants in `AI-PROMPTS.md`. Verification was not run for this change.
+
+## Key-aware orchestration and deterministic UI transposition — 2026-09-26
+
+The dispatcher now receives an explicit `KEY_CONTEXT`: an existing stored root is accepted and preserved unless the user requests a new key; an unset song lets the dispatcher choose a tonal center. Changing an existing key in the UI now transposes every pitched note by the root-to-root semitone delta, leaves percussion and musical timing unchanged, updates metadata, and rejects the operation atomically if any note would leave its instrument's playable range. Setting the first key on an unkeyed song records metadata without guessing a source key.
+
+## Tonal-center metadata — 2026-09-26
+
+The dispatcher now returns an optional root-only `key` value such as `D`, `F#`, or `Bb`. A successful composition stores the returned tonal center in `song.music.key`; `null` leaves the current metadata unchanged. The UI exposes a simple Key selector in the transport row, starting at `—`, with no major/minor control. This slice tracks the key only; it does not yet transpose notes when the selector changes.
+
+## Recoverable task instrument mismatches — 2026-09-26
+
+The current song track is authoritative for an existing track's instrument. If the dispatcher returns a stale or incorrect task `instrumentId`—for example after the user changed a track in the UI—the server now normalizes the task to the actual track instrument, records a `plan_normalized` trace event, and continues. New-track task IDs are likewise reconciled to their declared new-track instrument. Unknown tracks, invalid instruments, type mismatches, and final playable-range violations remain real validation errors.
+
+Verification: 31 server tests pass; server typecheck passes.
+
+## Preferred registers and rhythmic variation — 2026-09-26
+
+Harmonic `register` values are now treated as preferred musical areas rather than hard validation boundaries. Chord realization first tries the requested register, then falls back to a nearby voicing inside the selected instrument's actual playable MIDI range. Invalid chords still fail when no playable realization exists, and the final song validator continues to enforce instrument range. Dispatcher, rhythm-worker, pitch-worker, and composition guidance now explicitly encourage varied tonal centers, registers, density, weighted subdivisions, triplets, swing, rests, offbeats, and phrase contrast for open-ended requests instead of defaulting to the same key, octave, or quarter-note pulse. Added a regression for a B dominant seventh requested in `C4-E5` falling back to a playable `C3-C6` range.
+
+Verification: 25 core tests and 30 server tests pass; server and core typechecks pass.
+
+## Multi-provider AI adapters — 2026-09-26
+
+Composition, rhythm/pitch workers, and AI effects can now select `openai`, `openrouter`, or `anthropic` through `AI_PROVIDER`. OpenAI uses the existing Responses adapter; OpenRouter uses the OpenAI-compatible Responses endpoint; Anthropic uses the Messages API with native `output_config.format` JSON Schema. Provider-specific keys and model defaults are documented in `.env.example`; common `AI_ORCHESTRATOR_MODEL` and `AI_COMPOSER_MODEL` overrides are also supported. Browser dictation remains OpenAI-only because it uses the OpenAI transcription endpoint.
+
+Verification: `npm run typecheck` passed; `npm test` passed with 24 core tests and 29 server tests, including provider configuration coverage. No paid provider calls were made.
+
+## Weighted rhythm events and triplets — 2026-09-26
+
+Replaced the live rhythm worker's fixed four-slot pattern contract with weighted event sequences. Each beat now accepts `attack`, `hold`, or `rest` events with positive relative weights, allowing equal subdivisions, triplets, long-short swing, syncopation, and other varied phrase shapes without changing the canonical notation model. Pitch workers receive the locked weighted rhythm and return one pitch per attack; percussion and harmonic materialization remain deterministic. Cross-row holds, chord-boundary validation, duration-weighted notation, and fractional playback timing are preserved.
+
+Updated the rhythm tutorial, worker prompt guide, README, and specification with generalized groove examples and compact JSON examples. Added a regression covering triplet timing and weighted long-short timing.
+
+Verification: `npm run typecheck` passed; `npm test` passed with 24 core tests and 27 server tests.
+
+## Minimal demo library — 2026-09-26
+
+Replaced per-song directories and Git history with one validated `songs/<uuid>.json` file per demo. Kept atomic Windows-safe saves, revision conflict checks, and detection of externally changed files. Removed startup recovery, run checkpoint files, history routes/UI, trace routes, and hidden diagnostics polling. Companion reasoning now uses the existing live SSE connection. Finished run state is bounded in memory and is lost on server restart.
+
+The start screen lists demos and offers New. New names use Untitled N; refresh and Load never create a song. Duplicate copies a demo. Edits autosave, and Reset replaces the saved music without history. Moved 39 old experimental folders to ignored `song-archives/before-simple-library-2026-09-26/`; the active songs folder is empty. No files were permanently deleted.
+
+Verification: production build passes; 24 core and 26 server tests pass; three browser regressions pass (refresh/New/Load, saved names and instruments, repeat effect playback). Updated outdated fake-worker fixtures to understand six default tracks and harmonic boundary context. Built-server timing on this machine: 1,822 ms module loading plus 241 ms initialization/listen, 2,063 ms total. This measures backend readiness, not page/audio loading, and is not a before/after benchmark.
+
+README.md and RUNNING.md describe the current minimal product. Earlier sections below are historical.
+
 ## Instrument catalog review — 2026-09-26
 
 Imported the Instrument Lab review: promoted Saw Lead, FM Bell, Dream Pad, Electric Piano, Open Hi-Hat, Low Tom, Woodblock, and Crash to the active catalog; left Synth Brass and unreviewed sounds as candidates; and retired Bright Lead from new selection while retaining its implementation for older songs. Fresh songs and broad dispatcher arrangements now use Soft Lead. Typechecks and the production web build pass. The full core suite still contains the unrelated pre-existing `new_lead` scope-fixture failure; the Instrument Lab browser test could not start because port 3101 was already occupied by another process.

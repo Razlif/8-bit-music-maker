@@ -21,9 +21,11 @@ it("locates bad tokens, missing brackets, duplicate and missing rows", () => {
 
 it("keeps dispatcher context separate from worker notation", async () => {
   const song = newSong(crypto.randomUUID()), traces: any[] = [];
-  await runAgent({ song, instruction: "compose", selection: { kind: "song" }, progress: () => {}, signal: new AbortController().signal, trace: async (type, payload) => traces.push({ type, payload }) }, fake);
+  await runAgent({ song, instruction: "compose", selection: { kind: "tracks", trackIds: [song.music.tracks[0].id] }, progress: () => {}, signal: new AbortController().signal, trace: async (type, payload) => traces.push({ type, payload }) }, fake);
   const planning = traces.find((entry) => entry.type === "planning_context")?.payload.text as string;
   expect(planning).toContain("INSTRUMENT_CATALOG");
+  expect(planning).toContain("UI_SELECTION");
+  expect(planning).toContain('"track":"t1"');
   expect(planning).not.toContain("RHYTHM_TUTORIAL");
   expect(traces.some((entry) => entry.type === "rhythm_grid")).toBe(true);
   expect(traces.some((entry) => entry.type === "aggregate_validation_passed")).toBe(true);

@@ -1,5 +1,6 @@
 import { StateGraph, START, END, Annotation } from "@langchain/langgraph";
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -17,9 +18,11 @@ import {
   max,
   cmp,
   INSTRUMENTS,
+  midiToPitch,
   isActiveInstrument,
   listInstruments,
   CHORD_QUALITIES,
+  KeyRootSchema,
   resolveChord,
   type Candidate,
   type Selection,
@@ -29,7 +32,7 @@ import {
   type Fraction,
 } from "@eight-bit/core";
 import { getConfig } from "./config.js";
-import { streamStructured, ModelOutputError } from "./model-stream.js";
+import { streamStructured, streamStructuredAnthropic, ModelOutputError } from "./model-stream.js";
 import { diagnoseCandidate } from "./diagnostics.js";
 import {
   EFFECT_SYSTEM,
@@ -39,10 +42,21 @@ import {
 
 export type Progress = (type: string, payload?: unknown) => void;
 export type Trace = (type: string, payload: unknown) => Promise<void>;
+export type ModelCallContext = {
+  provider?: "openai" | "openrouter" | "anthropic";
+  stage?: "orchestration" | "rhythm" | "pitch" | "legacy" | "effect";
+  rhythmFormat?: "json" | "notation";
+  track?: string;
+  startBar?: number;
+  endBar?: number;
+  rowRefs?: string[];
+  attempt?: number;
+};
 export type RunInput = {
   song: Song;
   instruction: string;
   selection: Selection;
+  rhythmFormat?: RhythmFormat;
   progress: Progress;
   trace?: Trace;
   signal: AbortSignal;
@@ -70,6 +84,7 @@ const TaskSectionSchema = z.object({
  */
 export const OrchestratorPlanSchema = z.object({
   brief: z.string().min(1).max(500),
+  key: KeyRootSchema.nullable().default(null),
   tasks: z.array(z.object({
     id: z.string().regex(/^task-[a-z0-9-]+$/).max(64),
     track: z.string().regex(/^(t[1-8]|new[1-8])$/),
@@ -105,9 +120,18 @@ export const ReplacementSchema = z.object({
   rows: z.array(z.object({ rowRef: z.string().regex(/^r[1-9]\d{0,2}$/).max(4), body: z.string().max(10000) }).strict()),
 }).strict();
 export type Replacement = z.infer<typeof ReplacementSchema>;
-export const RhythmSchema = z.object({
-  rows: z.array(z.object({ rowRef: z.string().regex(/^r[1-9]\d{0,2}$/).max(4), pattern: z.string().regex(/^[x.-]{4}$/) }).strict()).min(1).max(128),
+export const RhythmEventSchema = z.object({
+  token: z.enum(["attack", "hold", "rest"]),
+  weight: z.number().int().positive().max(1_000_000),
 }).strict();
+export type RhythmEvent = z.infer<typeof RhythmEventSchema>;
+export const RhythmSchema = z.object({
+  rows: z.array(z.object({ rowRef: z.string().regex(/^r[1-9]\d{0,2}$/).max(4), events: z.array(RhythmEventSchema).min(1).max(128) }).strict()).min(1).max(128),
+}).strict();
+export const NotationRhythmSchema = z.object({
+  rows: z.array(z.object({ rowRef: z.string().regex(/^r[1-9]\d{0,2}$/).max(4), pattern: z.string().min(1).max(4096) }).strict()).min(1).max(128),
+}).strict();
+export type RhythmFormat = "json" | "notation";
 export type Rhythm = z.infer<typeof RhythmSchema>;
 export const PitchSchema = z.object({
   rows: z.array(z.object({ rowRef: z.string().regex(/^r[1-9]\d{0,2}$/).max(4), pitches: z.array(z.string()).max(4) }).strict()).min(1).max(128),
@@ -116,65 +140,117 @@ export type PitchFill = z.infer<typeof PitchSchema>;
 const MAX_MODEL_ATTEMPTS = 3;
 export interface ModelAdapter {
   /** @deprecated only used by the unreachable legacy repair graph. */
-  plan(input: string, signal: AbortSignal): Promise<unknown>;
-  orchestrate(input: string, signal: AbortSignal): Promise<unknown>;
-  rhythm?: (input: string, signal: AbortSignal) => Promise<unknown>;
-  pitch?: (input: string, signal: AbortSignal) => Promise<unknown>;
-  effect?: (input: string, signal: AbortSignal) => Promise<unknown>;
+  plan(input: string, signal: AbortSignal, context?: ModelCallContext): Promise<unknown>;
+  orchestrate(input: string, signal: AbortSignal, context?: ModelCallContext): Promise<unknown>;
+  rhythm?: (input: string, signal: AbortSignal, format?: RhythmFormat, context?: ModelCallContext) => Promise<unknown>;
+  pitch?: (input: string, signal: AbortSignal, context?: ModelCallContext) => Promise<unknown>;
+  effect?: (input: string, signal: AbortSignal, context?: ModelCallContext) => Promise<unknown>;
   /** @deprecated only used by the unreachable legacy repair graph. */
-  compose(input: string, signal: AbortSignal): Promise<unknown>;
+  compose(input: string, signal: AbortSignal, context?: ModelCallContext): Promise<unknown>;
 }
 export function createModelAdapter(
   progress: Progress = () => {},
   trace: Trace = async () => {},
 ): ModelAdapter {
   const config = getConfig(),
-    client = new OpenAI({
-      apiKey: config.openaiKey,
-      maxRetries: 0,
-      timeout: config.runTimeoutMs,
-    });
+    provider = config.provider ?? "openai",
+    openaiClient = provider === "anthropic"
+      ? undefined
+      : new OpenAI({
+          apiKey: provider === "openrouter" ? config.openrouterKey : config.openaiKey,
+          baseURL: provider === "openrouter" ? "https://openrouter.ai/api/v1" : undefined,
+          defaultHeaders: provider === "openrouter"
+            ? {
+                "X-OpenRouter-Title": "CHIP Studio",
+              }
+            : undefined,
+          maxRetries: 0,
+          timeout: config.runTimeoutMs,
+        }),
+    anthropicClient = provider === "anthropic"
+      ? new Anthropic({
+          apiKey: config.anthropicKey,
+          maxRetries: 0,
+          timeout: config.runTimeoutMs,
+        })
+      : undefined;
+  const structured = <T>(
+    model: string,
+    schema: z.ZodType<T>,
+    name: string,
+    input: string,
+    signal: AbortSignal,
+    maxOutputTokens: number,
+    reasoningEffort: "low" | "medium" | "high",
+    systemInstruction?: string,
+    context: ModelCallContext = {},
+  ) => provider === "anthropic"
+    ? streamStructuredAnthropic(anthropicClient!, model, schema, name, input, signal, progress, trace, maxOutputTokens, reasoningEffort, systemInstruction, { ...context, provider })
+    : streamStructured(openaiClient!, model, schema, name, input, signal, progress, trace, maxOutputTokens, reasoningEffort, systemInstruction, { ...context, provider });
   return {
-    plan: (input, signal) =>
-      streamStructured(client, config.composerModel, PlanSchema, "legacy_music_plan", input, signal, progress, trace, 2000, "low"),
-    orchestrate: (input, signal) =>
-      streamStructured(
-        client,
+    plan: (input, signal, context) =>
+      structured(config.composerModel, PlanSchema, "legacy_music_plan", input, signal, 2000, "low", undefined, context),
+    orchestrate: (input, signal, context) =>
+      structured(
         config.orchestratorModel,
         OrchestratorPlanSchema,
         "music_orchestration",
         input,
         signal,
-        progress,
-        trace,
         8000,
         "medium",
+        undefined,
+        context,
       ),
-    rhythm: (input, signal) =>
-      streamStructured(client, config.composerModel, RhythmSchema, "rhythm_grid", input, signal, progress, trace, 4000, "low"),
-    pitch: (input, signal) =>
-      streamStructured(client, config.composerModel, PitchSchema, "pitch_fill", input, signal, progress, trace, 4000, "low"),
-    effect: (input, signal) =>
-      streamStructured(
-        client,
+    rhythm: (input, signal, format = "json", context) =>
+      format === "notation"
+        ? structured(config.composerModel, NotationRhythmSchema, "rhythm_notation", input, signal, 4000, "low", undefined, context)
+        : structured(config.composerModel, RhythmSchema, "rhythm_grid", input, signal, 4000, "low", undefined, context),
+    pitch: (input, signal, context) =>
+      structured(config.composerModel, PitchSchema, "pitch_fill", input, signal, 4000, "low", undefined, context),
+    effect: (input, signal, context) =>
+      structured(
         config.composerModel,
         EffectRecipeSchema,
         "effect_recipe",
         effectPrompt(input),
         signal,
-        progress,
-        trace,
         6000,
         "low",
         EFFECT_SYSTEM,
+        context,
       ),
-    compose: (input, signal) =>
-      streamStructured(client, config.composerModel, ReplacementSchema, "legacy_music_replacement", input, signal, progress, trace, 2000, "low"),
+    compose: (input, signal, context) =>
+      structured(config.composerModel, ReplacementSchema, "legacy_music_replacement", input, signal, 2000, "low", undefined, context),
   };
 }
 export type BoundRow = Scope["requiredRows"][number] & { rowRef: string };
-export type BoundRhythm = { rowRef: string; pattern: string };
+export type BoundRhythm = { rowRef: string; events: RhythmEvent[] };
 const fraction = (f: Fraction) => f.n + "/" + f.d;
+const rhythmWeight = (events: RhythmEvent[]) => events.reduce((sum, event) => sum + event.weight, 0);
+const rhythmAttackCount = (events: RhythmEvent[]) => events.filter((event) => event.token === "attack").length;
+const notationToken = (token: string, weight: number) => token + (weight === 1 ? "" : ":" + weight);
+const rhythmEventsFromNotation = (body: string): RhythmEvent[] =>
+  parseRowBody(body).map(({ token, weight }) => ({
+    token: token === "rest" ? "rest" : token === "hold" ? "hold" : "attack",
+    weight,
+  }));
+const notationPatternEvents = (pattern: string): RhythmEvent[] => {
+  const parts = pattern.trim().split(/\s+/);
+  if (!pattern.trim() || parts.length > 128)
+    throw new Error("INVALID_RHYTHM_NOTATION: expected 1–128 space-separated events");
+  return parts.map((part) => {
+    const match = /^([x.-])(?::([1-9]\d*))?$/.exec(part);
+    if (!match) throw new Error("INVALID_RHYTHM_NOTATION_TOKEN: " + part);
+    const weight = Number(match[2] ?? 1);
+    if (!Number.isSafeInteger(weight) || weight > 1_000_000)
+      throw new Error("RHYTHM_COMPLEXITY_LIMIT: weight");
+    return {
+      token: match[1] === "x" ? "attack" as const : match[1] === "-" ? "hold" as const : "rest" as const,
+      weight,
+    };
+  });
+};
 const check = (input: RunInput) => {
   if (input.signal.aborted) throw new Error("CANCELLED");
 };
@@ -208,12 +284,40 @@ function instrumentDefinition(id: string) {
   return INSTRUMENTS[id];
 }
 
+function instrumentPlayableRange(id: string) {
+  const definition = instrumentDefinition(id);
+  if (!definition || definition.minMidi === undefined || definition.maxMidi === undefined) return undefined;
+  return `${midiToPitch(definition.minMidi)}-${midiToPitch(definition.maxMidi)}`;
+}
+
 function aliasesToTracks(song: Song) {
   return new Map([...trackAliases(song)].map(([id, alias]) => [alias, song.music.tracks.find((track) => track.id === id)!] as const));
 }
 
+/**
+ * The song is authoritative for an existing track's instrument. The
+ * dispatcher repeats the instrument in its task so workers have local
+ * context, but that copy can be stale after a UI instrument change or a
+ * model choosing a familiar default. Reconcile it before validation instead
+ * of throwing away an otherwise valid composition.
+ */
+export function normalizeOrchestrationPlan(input: RunInput, plan: OrchestrationPlan): OrchestrationPlan {
+  const tracks = aliasesToTracks(input.song);
+  const declaredNewTracks = new Map(plan.newTracks.map((track) => [track.ref, track]));
+  return {
+    ...plan,
+    tasks: plan.tasks.map((task) => {
+      const authoritative = tracks.get(task.track)?.instrumentId ?? declaredNewTracks.get(task.track)?.instrumentId;
+      return authoritative && authoritative !== task.instrumentId
+        ? { ...task, instrumentId: authoritative }
+        : task;
+    }),
+  };
+}
+
 /** Reject ambiguous plans before any worker is called. */
 export function validateOrchestrationPlan(input: RunInput, plan: OrchestrationPlan) {
+  plan = normalizeOrchestrationPlan(input, plan);
   const tracks = aliasesToTracks(input.song), newTracks = new Map(plan.newTracks.map((track) => [track.ref, track]));
   if (newTracks.size !== plan.newTracks.length) throw new Error("DUPLICATE_NEW_TRACK_REF");
   if (newTracks.size + input.song.music.tracks.length > 8) throw new Error("TRACK_LIMIT: at most eight tracks");
@@ -255,6 +359,7 @@ export function validateOrchestrationPlan(input: RunInput, plan: OrchestrationPl
         throw new Error("OVERLAPPING_CHORD_PROGRESSION");
     for (const task of harmonicTasks) {
       const start = (task.startBar - 1) * 4, end = task.endBar * 4;
+      const instrumentId = (tracks.get(task.track)?.instrumentId ?? newTracks.get(task.track)?.instrumentId)!;
       let cursor = start;
       for (const chord of progression.filter((item) => item.startBeat >= start && item.endBeat <= end)) {
         if (chord.startBeat !== cursor || chord.endBeat <= chord.startBeat)
@@ -263,7 +368,7 @@ export function validateOrchestrationPlan(input: RunInput, plan: OrchestrationPl
       }
       if (cursor !== end) throw new Error("INCOMPLETE_CHORD_PROGRESSION: " + task.track);
       for (const chord of progression.filter((item) => item.startBeat >= start && item.endBeat <= end))
-        resolveChord(chord.root, chord.quality, task.register!, task.voicing!);
+        resolveChord(chord.root, chord.quality, task.register!, task.voicing!, instrumentPlayableRange(instrumentId));
     }
   }
   return plan;
@@ -352,6 +457,44 @@ function songOverview(song: Song) {
         };
       }),
     })),
+  };
+}
+function selectionOverview(song: Song, selection: Selection) {
+  const aliases = trackAliases(song),
+    tracks = new Map(song.music.tracks.map((track) => [track.id, track]));
+  const trackInfo = (id: string) => ({
+    track: aliases.get(id) ?? id,
+    name: tracks.get(id)?.name ?? "unknown track",
+  });
+  if (selection.kind === "song")
+    return { kind: "song", description: "The whole song is selected." };
+  if (selection.kind === "tracks")
+    return { kind: "tracks", tracks: selection.trackIds.map(trackInfo) };
+  if (selection.kind === "regions")
+    return {
+      kind: "regions",
+      regions: selection.regions.map((region) => ({
+        startBeat: fraction(region.start),
+        endBeat: fraction(region.end),
+        tracks: region.trackIds.map(trackInfo),
+      })),
+    };
+  return {
+    kind: "notes",
+    notes: selection.noteIds.map((noteId) => {
+      const found = song.music.tracks.flatMap((track) =>
+        track.notes.map((note) => ({ track, note })),
+      ).find(({ note }) => note.id === noteId);
+      return found
+        ? {
+            noteId,
+            ...trackInfo(found.track.id),
+            startBeat: fraction(found.note.start),
+            durationBeats: fraction(found.note.duration),
+            value: found.note.kind === "pitched" ? found.note.pitch : "hit",
+          }
+        : { noteId, ...trackInfo("unknown") };
+    }),
   };
 }
 async function guidance() {
@@ -447,11 +590,11 @@ export async function replacementContext(
     section("LANGUAGE_TUTORIAL", tutorial) +
     section(
       "GROOVE_PRIORITY",
-      "When the request asks for a groove, riff, beat, or a blank track, compose rhythm before pitch. Establish one memorable one-bar rhythmic cell with deliberate rests or offbeats; repeat it with a small variation, then make bar 4 clearly return. Do not fill every beat with an ascending or descending scale. A bass groove should use a small pitch palette (normally 2–4 related pitches), repeated attacks, space, and a recognisable rhythmic accent. Use weighted slices only when they make the rhythm clearer—not as decoration.",
+      "When the request asks for a groove, riff, beat, or a blank track, compose rhythm before pitch. Establish one memorable rhythmic cell with deliberate rests or offbeats; repeat it with a small variation, then make the phrase return. Do not fill every beat with an ascending or descending scale. A bass groove should use a small pitch palette (normally 2–4 related pitches), repeated attacks, space, and a recognisable rhythmic accent. Use weighted subdivisions deliberately: unless a straight quarter pulse is explicitly requested, include at least one contrast such as eighths, sixteenths, triplets, a long-short 2:1 or 3:2 feel, rests, offbeats, or anticipation. Across sections, vary density or subdivision while keeping a recognizable phrase.",
     ) +
     (rhythm
       ? section("LOCKED_RHYTHM_GRID", {
-          legend: "x = new attack, - = continuation/hold, . = rest. Preserve every pattern exactly; choose pitches only for x cells.",
+          legend: "Each beat is a weighted event sequence. attack starts a note, hold continues it, and rest is silence. Preserve every event and weight exactly; choose pitches only for attack events.",
           rows: rhythm,
         })
       : "") +
@@ -483,44 +626,51 @@ function rhythmPrompt(input: RunInput, song: Song, rows: BoundRow[], workOrder: 
   return section("ROLE", "You are the rhythm designer. Do not choose pitches, notes, chords, instruments, or explanations. Create the rhythmic skeleton only.") +
     section("USER_REQUEST", input.instruction) +
     section("RHYTHM_DIRECTION", { rhythmBrief: workOrder?.rhythmBrief, instrument: song.music.tracks.find(t => t.id === rows[0].trackRef)?.instrumentId }) +
-    section("GROOVE_EXAMPLES", { explanation: "Each array is one bar, four beats in time order. Adapt to the requested instrument and feel.", bass: ["x-..", "..x.", "x..x", "..x-"], kick: ["x...", "....", "x...", "...x"], hat: ["x.x.", "x.x.", "x.x.", "x.xx"], rule: "For percussion use only x and .; the preset controls sound and decay. For pitched tracks a - can follow x or - but never silence. Start a passage with x or . . Return actual TARGET_ROWS, not example labels." }) +
     section("TARGET_ROWS", rows.map(r => ({ rowRef: r.rowRef, track: trackAliases(song).get(r.trackRef) ?? r.trackRef, bar: r.bar, beat: r.beat }))) +
-    section("RHYTHM_LANGUAGE", "Each pattern has exactly four sixteenth-note slots. x = new attack, - = continuation, . = silence. Examples: x--- is a sustained quarter; x.x. is two short attacks; ..x- is an offbeat eighth; x..x is a syncopated attack and pickup. For a four-bar bass groove, establish one memorable cell in bars 1–2, vary it in bar 3, and return it in bar 4. Use space; never make every row xxxx or a mechanical straight scale rhythm.") +
-    section("OUTPUT_CONTRACT", { rows: rows.length, shape: { rows: [{ rowRef: rows[0].rowRef, pattern: "x.x." }] }, rule: "Return exactly one minified JSON object on one line. Include every rowRef exactly once. Do not pretty-print, add indentation, add line breaks, or write prose. No whitespace outside JSON string values." });
+    section("RHYTHM_LANGUAGE", "Each beat is a sequence of weighted events. attack starts a note, hold continues a pitched note, and rest is silence. Weights are positive relative durations and are normalized to one beat. One event with weight 1 is a quarter; attack+attack with weights 1,1 gives two eighths; three attacks with weights 1,1,1 gives a triplet; attack weights 2,1 gives a long-short swing. Vary density, rests, offbeats, and phrase returns.") +
+    section("OUTPUT_CONTRACT", { rows: rows.length, shape: { rows: [{ rowRef: rows[0].rowRef, events: [{ token: "attack", weight: 1 }, { token: "rest", weight: 1 }] }] }, rule: "Return exactly one minified JSON object on one line. Include every rowRef exactly once. Do not pretty-print, add indentation, add line breaks, or write prose. No whitespace outside JSON string values." });
 }
 
 function pitchPrompt(input: RunInput, song: Song, rows: BoundRow[], rhythm: BoundRhythm[], workOrder: MusicPlan["workOrders"][number] | null, harmony: string) {
   return section("ROLE", "You are the pitch filler. Rhythm is already finished and locked. Choose pitches only. Do not edit rhythm, durations, rests, holds, instruments, or structure. Return only the small JSON shape below.") +
     section("TRACK", { track: trackAliases(song).get(rows[0].trackRef) ?? rows[0].trackRef, instrument: song.music.tracks.find(t => t.id === rows[0].trackRef)?.instrumentId, range: listInstruments().find(i => i.id === song.music.tracks.find(t => t.id === rows[0].trackRef)?.instrumentId) }) +
     section("MUSICAL_DIRECTION", { harmony, pitchBrief: workOrder?.pitchBrief, userRequest: input.instruction }) +
-    section("LOCKED_RHYTHM", rows.map(row => { const pattern = rhythm.find(r => r.rowRef === row.rowRef)!.pattern; return { rowRef: row.rowRef, bar: row.bar, beat: row.beat, pattern, requiredPitchCount: [...pattern].filter(c => c === "x").length }; })) +
-    section("PITCH_RULE", "Each x in a row needs exactly one pitch in that row's pitches list. Each - and . needs no pitch. Use the instrument range and the dispatcher's harmony/pitch brief. Reuse a small motif; do not invent rhythm.") +
-    section("MINI_TUTORIAL", "The pitches array is the ordered list of ACTUAL notes to play, never a palette or menu of options. requiredPitchCount is computed by the server: return exactly that many notes. A direction to use 2–4 distinct notes describes the palette across the entire phrase, NOT the count per row. For C minor use Eb, not E natural. Repeated notes are allowed. Zero attacks requires an empty array.") +
-    section("EXAMPLE_ONLY", { input: [{rowRef:"example1",pattern:"x...",requiredPitchCount:1},{rowRef:"example2",pattern:"x.x.",requiredPitchCount:2},{rowRef:"example3",pattern:"....",requiredPitchCount:0}], output: {rows:[{rowRef:"example1",pitches:["C2"]},{rowRef:"example2",pitches:["Eb2","G2"]},{rowRef:"example3",pitches:[]}]}, rule:"Examples illustrate counts only. Fill the actual LOCKED_RHYTHM rows." }) +
+    section("LOCKED_RHYTHM", rows.map(row => { const events = rhythm.find(r => r.rowRef === row.rowRef)!.events; return { rowRef: row.rowRef, bar: row.bar, beat: row.beat, events, requiredPitchCount: rhythmAttackCount(events) }; })) +
+    section("PITCH_RULE", "Each attack in a row needs exactly one pitch in that row's pitches list. Each hold and rest needs no pitch. Treat the dispatcher's register as a preferred target, not a hard boundary: choose a nearby octave when it improves voice-leading, chord fit, or phrase shape, but stay inside the instrument's actual playable range. Reuse a small motif; do not invent rhythm.") +
+    section("MINI_TUTORIAL", "The pitches array is the ordered list of ACTUAL notes to play, never a palette or menu of options. requiredPitchCount is computed by the server: return exactly that many notes. A direction to use 2–4 distinct notes describes the palette across the entire phrase, NOT the count per row. For C minor use Eb, not E natural. Repeated notes are allowed. Zero attacks requires an empty array. Register guidance is flexible; the instrument's playable range is the only hard pitch boundary.") +
+    section("EXAMPLE_ONLY", { input: [{rowRef:"example1",events:[{token:"attack",weight:1}],requiredPitchCount:1},{rowRef:"example2",events:[{token:"attack",weight:1},{token:"rest",weight:1},{token:"attack",weight:1}],requiredPitchCount:2},{rowRef:"example3",events:[{token:"rest",weight:1}],requiredPitchCount:0}], output: {rows:[{rowRef:"example1",pitches:["C2"]},{rowRef:"example2",pitches:["Eb2","G2"]},{rowRef:"example3",pitches:[]}]}, rule:"Examples illustrate counts only. Fill the actual LOCKED_RHYTHM rows." }) +
     section("OUTPUT_CONTRACT", { rows: rows.length, rule: "Return every rowRef exactly once. pitches contains only note names such as C2, G#2, Bb3. No prose and no brackets." });
 }
 
-async function rhythmTutorial() {
-  return fs.readFile(path.join(getConfig().rootDir, "apps/server/src/skills/rhythm.md"), "utf8");
+async function rhythmTutorial(format: RhythmFormat = "json") {
+  const file = format === "notation" ? "rhythm-notation.md" : "rhythm.md";
+  return fs.readFile(path.join(getConfig().rootDir, "apps/server/src/skills", file), "utf8");
 }
 
 function orchestrationPrompt(input: RunInput) {
   return section("ROLE", "You are the composer-dispatcher. Inspect the whole song and translate the user's request into explicit track-local composition tasks. You do not write notation, do not choose individual notes, and do not explain your answer.") +
     section("SONG_CONTEXT", songOverview(input.song)) +
+    section("UI_SELECTION", selectionOverview(input.song, input.selection)) +
+    section("KEY_CONTEXT", input.song.music.key
+      ? "The song already has tonal center " + input.song.music.key.root + ". Accept it as the current key, use it when choosing harmony and pitches, and return the same root unless the user explicitly requests a new key."
+      : "The song has no stored tonal center. Choose a root that fits the request and return it as key; do not assume C unless the musical request calls for it.") +
     section("INSTRUMENT_CATALOG", listInstruments()) +
     section("USER_REQUEST", input.instruction) +
     section("TASK_RULES", {
-      track: "Every task targets exactly one existing track t1..t8 or one new track new1..new8. Never put two instruments in one task.",
+      track: "Every task targets exactly one existing track t1..t8 or one new track new1..new8. Never put two instruments in one task. For an existing track, copy the current instrumentId from SONG_CONTEXT; the existing song track is authoritative and the UI may have changed it since an earlier plan.",
+      key: "Return key as the song's tonal center: one root such as D, F#, or Bb. Choose it from the request or from the harmony you compose. Return null only when the request is intentionally atonal or no tonal center can be chosen. This is metadata; do not add a separate mode.",
       range: "Use only bars inside the song. Sections must cover the task's complete contiguous bar range with no gaps or overlaps.",
+      selection: "Use the full song as context. Focus tasks on UI_SELECTION; only changes inside that selection will be applied. A whole-song selection permits the full arrangement.",
       workers: "type=melodic means rhythm worker followed by pitch worker for pitched instruments; arpeggios are ordinary melodic tasks described by pitchInstruction. Hit instruments use rhythm only. type=harmonic means rhythm worker followed by deterministic block-chord realization from progression, register, and voicing.",
       taskType: "Use melodic for single-note lines, including bass, lead, melody and arpeggios. Use harmonic only for simultaneous block chords. Do not add a role field: track name, instrumentId, type and instructions describe the task.",
       defaultArrangement: "When the user asks broadly to write, create, or compose a song without limiting the instrumentation, create one task for each of the six standard starter tracks listed in SONG_CONTEXT: Soft Lead (soft_lead, melodic), Chip Bass (chip_bass, melodic), Kick (kick, rhythm-only percussion), Hi-Hat (closed_hat, rhythm-only percussion), Snare (snare, rhythm-only percussion), and Harmony (chip_pad, harmonic block chords). Reuse those existing tracks by their t-alias; do not add duplicates. For Harmony provide a progression, register, voicing and chord rhythm. If the user asks for a subset, honor it and leave other starter tracks unchanged; explicit instrumentation overrides this default.",
-      harmony: "Return a progression of absolute chord roots and supported qualities. startBeat is zero-based and endBeat is exclusive. Cover every beat of each harmonic task with contiguous non-overlapping chords. Convert Roman numeral requests into concrete roots using the song key. A chord boundary may be silent; the next attack uses the chord active at that moment. Never hold the previous chord through a chord change: use x at the boundary when the new chord must continue sounding, or . when silence is intended. Supported qualities: " + CHORD_QUALITIES.join(", "),
+      harmony: "Return a progression of absolute chord roots and supported qualities. startBeat is zero-based and endBeat is exclusive. Cover every beat of each harmonic task with contiguous non-overlapping chords. Choose a tonal center that fits the request; do not default to C major just because no key is pre-filled. Convert Roman numeral requests into concrete roots using the chosen tonal center. Vary registers and voice-leading between complementary tracks when useful. A requested register is a preferred musical area, not a hard rejection boundary; the backend may realize a valid chord in a nearby octave inside the instrument's playable range. At a chord boundary, start a new chord when it should enter; silence is allowed at a boundary; never sustain the previous chord across a chord change. Supported qualities: " + CHORD_QUALITIES.join(", "),
       newTracks: "Create multiple new tracks when the request requires them. Each new track must be declared once in newTracks and have one matching task.",
-      guidance: "Give concrete, short instructions: pulse density, rests, syncopation, repeated cells, phrase changes and return points. Do not inject bass, drums or any other role unless the request calls for it.",
+      guidance: "Give concrete, short instructions: pulse density, rests, syncopation, repeated cells, phrase changes, return points, and at least one intentional rhythmic contrast when the request is open-ended. Encourage tasteful variation in tonal center, register, density, and subdivision instead of repeating the same key, octave, or quarter-note pulse. Do not inject bass, drums or any other role unless the request calls for it.",
     }) +
     section("OUTPUT_EXAMPLE", {
       brief: "four-bar arcade groove",
+      key: "G",
       tasks: [{
         id: "task-bass",
         track: "new1",
@@ -575,7 +725,7 @@ function harmonicBoundaryRows(
       rowRef: row.rowRef,
       bar: row.bar,
       beat: row.beat,
-      rule: "first slot may be x or . but never -",
+      rule: "At a chord boundary, start a new attack when the chord should sound immediately; use silence when it should not. Never carry the previous chord through a chord change.",
     }));
 }
 
@@ -585,12 +735,12 @@ function validateHarmonicRhythmBoundaries(
   rows: BoundRow[],
   rhythm: BoundRhythm[],
 ) {
-  const byRef = new Map(rhythm.map((row) => [row.rowRef, row.pattern]));
+  const byRef = new Map(rhythm.map((row) => [row.rowRef, row.events]));
   for (const boundary of harmonicBoundaryRows(task, progression, rows)) {
-    if (byRef.get(boundary.rowRef)?.[0] === "-") {
+    if (byRef.get(boundary.rowRef)?.[0]?.token === "hold") {
       const absoluteBeat = (boundary.bar - 1) * 4 + boundary.beat - 1;
       throw new Error(
-        `CHORD_CHANGE_CANNOT_HOLD: beat ${absoluteBeat}; use x to attack the new chord or . to leave silence`,
+        `CHORD_CHANGE_CANNOT_HOLD: beat ${absoluteBeat}; use attack for the new chord or rest for silence`,
       );
     }
   }
@@ -601,54 +751,68 @@ function trackRhythmPrompt(
   instrumentId: string,
   rows: BoundRow[],
   tutorial: string,
-  progression: OrchestrationPlan["progression"],
+  format: RhythmFormat,
 ) {
-  const boundaries = harmonicBoundaryRows(task, progression, rows);
-  return section("ROLE", "You are a track-local rhythm worker. Execute the task exactly. You do not choose pitches, instruments, harmony, or explanations.") +
+  const outputContract = format === "notation"
+    ? {
+        rows: rows.length,
+        shape: { rows: [{ rowRef: rows[0]?.rowRef ?? "r1", pattern: "x:2 x" }] },
+        rule: "Return exactly one minified JSON object. Every target rowRef appears exactly once. Each pattern is one beat of space-separated x, -, or . events, optionally with :positive-integer weights. Return rhythm notation in pattern strings, not event objects, pitch notation, a full song, markdown, or prose.",
+      }
+    : {
+        rows: rows.length,
+        shape: { rows: [{ rowRef: rows[0]?.rowRef ?? "r1", events: [{ token: "attack", weight: 1 }, { token: "rest", weight: 1 }] }] },
+        rule: "Return exactly one minified JSON object on one line. Every target rowRef appears exactly once. Each event token is attack, hold, or rest; each weight is a positive integer relative duration. Return event objects, not pitch notation, a full song, markdown, or prose.",
+      };
+  return section("ROLE", format === "notation"
+    ? "You are a track-local rhythm worker. Execute the task exactly. Return the rhythm using the x/-/. notation taught below. Do not choose pitches, instruments, harmony, or explanations."
+    : "You are a track-local rhythm worker. Execute the task exactly. Return rhythm as JSON event objects using attack/hold/rest. Do not choose pitches, instruments, harmony, or explanations.") +
     section("TASK", {
       track: task.track,
+      type: task.type,
       instrumentId,
+      instrumentKind: instrumentDefinition(instrumentId)?.kind,
       startBar: task.startBar,
       endBar: task.endBar,
       rhythmInstruction: task.rhythmInstruction,
       sections: task.sections,
     }) +
     section("RHYTHM_TUTORIAL", tutorial) +
+    section("EXECUTION_RULE", "Follow the rhythmInstruction and sections exactly. Translate the musical instruction into the requested output format. Do not add new rhythmic styles, subdivisions, or structural variation unless the task requests them.") +
     section("TARGET_ROWS", rows.map((row) => ({ rowRef: row.rowRef, track: task.track, bar: row.bar, beat: row.beat }))) +
-    (boundaries.length ? section("HARMONY_BOUNDARIES", {
-      rows: boundaries,
-      rule: "A chord boundary can be silent. Use . when silent, x when the new chord should sound immediately, and never - because that would carry the previous chord across the change.",
-    }) : "") +
-    section("RHYTHM_LANGUAGE", "pattern is exactly four sixteenth slots: x=new attack, -=hold for pitched instruments only, .=rest. Percussion uses x and . only.") +
-    section("OUTPUT_CONTRACT", { rows: rows.length, shape: { rows: [{ rowRef: rows[0]?.rowRef ?? "r1", pattern: "x.x." }] }, rule: "Return exactly one minified JSON object on one line. Every target rowRef appears exactly once. pattern is exactly four characters using x, -, and .; do not include prose or formatting." });
+    section("OUTPUT_CONTRACT", outputContract);
 }
 
 function trackPitchPrompt(task: OrchestrationPlan["tasks"][number], instrumentId: string, rows: BoundRow[], rhythm: BoundRhythm[]) {
-  return section("ROLE", "You are a track-local pitch filler. Rhythm is locked. Choose actual note names only for x attacks. Do not change rhythm, rests, holds, duration, instrument, or structure.") +
+  return section("ROLE", "You are a track-local pitch filler. Rhythm is locked. Choose actual note names only for attack events. Do not change rhythm, rests, holds, duration, instrument, or structure.") +
     section("TASK", { track: task.track, type: task.type, instrumentId, harmony: task.harmony, register: task.register, pitchInstruction: task.pitchInstruction }) +
-    section("LOCKED_RHYTHM", rows.map((row) => { const pattern = rhythm.find((item) => item.rowRef === row.rowRef)?.pattern ?? "...."; return { rowRef: row.rowRef, pattern, requiredPitchCount: [...pattern].filter((cell) => cell === "x").length }; })) +
-    section("PITCH_RULE", "Return the actual ordered pitches to play, not a palette. Each x requires exactly one pitch; each . or - requires none. Use the requested harmony and register. Zero attacks means [] and repeated notes are allowed.") +
+    section("RHYTHM_LANGUAGE", "Each beat is a sequence of weighted events. attack starts a note, hold continues the currently sounding pitched note, and rest is silence. Weights are positive relative durations normalized to one beat. One attack with weight 1 is a quarter; two attacks with weights 1,1 are eighths; three attacks with weights 1,1,1 are triplets; weights 2,1 create a long-short swing. A hold never starts a note. Return one pitch for each attack only; return no pitch for hold or rest.") +
+    section("LOCKED_RHYTHM", rows.map((row) => { const events = rhythm.find((item) => item.rowRef === row.rowRef)?.events ?? [{ token: "rest" as const, weight: 1 }]; return { rowRef: row.rowRef, events, requiredPitchCount: rhythmAttackCount(events) }; })) +
+    section("PITCH_RULE", "Return the actual ordered pitches to play, not a palette. Each attack requires exactly one pitch; each hold or rest requires none. Use the requested harmony and treat register as a preferred target, not a hard boundary. A nearby octave is valid when needed for the phrase or voice-leading; never leave the instrument's actual playable range. Zero attacks means [] and repeated notes are allowed.") +
     section("OUTPUT_CONTRACT", { rows: rows.length, shape: { rows: [{ rowRef: rows[0]?.rowRef ?? "r1", pitches: ["G2"] }] }, rule: "Return one minified JSON object on one line, every rowRef exactly once, no prose." });
 }
 
-function bindRhythm(output: unknown, rows: BoundRow[]): BoundRhythm[] {
-  const wire = RhythmSchema.parse(output), seen = new Set<string>(), bindings = new Map(rows.map(r => [r.rowRef, r]));
-  if (wire.rows.length !== rows.length) throw new Error("RHYTHM_ROW_COUNT");
+function bindRhythm(output: unknown, rows: BoundRow[], format: RhythmFormat = "json"): BoundRhythm[] {
+  const wireRows = format === "notation"
+    ? NotationRhythmSchema.parse(output).rows.map((row) => ({ rowRef: row.rowRef, events: notationPatternEvents(row.pattern) }))
+    : RhythmSchema.parse(output).rows;
+  const seen = new Set<string>(), bindings = new Map(rows.map(r => [r.rowRef, r]));
+  if (wireRows.length !== rows.length) throw new Error("RHYTHM_ROW_COUNT");
   const active = new Map<string, boolean>();
-  for (const row of wire.rows) {
+  for (const row of wireRows) {
     if (!bindings.has(row.rowRef) || seen.has(row.rowRef)) throw new Error("INVALID_RHYTHM_ROW_REF: " + row.rowRef);
     seen.add(row.rowRef);
   }
   seen.clear();
-  const ordered = rows.map(r => wire.rows.find(w => w.rowRef === r.rowRef)!);
+  const ordered = rows.map(r => wireRows.find(w => w.rowRef === r.rowRef)!);
   for (const row of ordered) {
     const binding = bindings.get(row.rowRef);
     if (!binding || seen.has(row.rowRef)) throw new Error("INVALID_RHYTHM_ROW_REF: " + row.rowRef);
     seen.add(row.rowRef);
     let held = active.get(binding.trackRef) ?? false;
-    for (const cell of row.pattern) {
-      if (cell === "x") held = true;
-      else if (cell === "-") { if (!held) throw new Error("ORPHAN_RHYTHM_HOLD: " + row.rowRef); }
+    for (const event of row.events) {
+      if (event.token === "attack") held = true;
+      else if (event.token === "hold") { if (!held) throw new Error("ORPHAN_RHYTHM_HOLD: " + row.rowRef); }
       else held = false;
     }
     active.set(binding.trackRef, held);
@@ -663,13 +827,16 @@ function bindPitch(output: unknown, rows: BoundRow[], rhythm: BoundRhythm[], sco
   if (byRef.size !== rows.length || wire.rows.some(r => !rows.some(b => b.rowRef === r.rowRef))) throw new Error("INVALID_PITCH_ROW_REFS: return each requested row exactly once");
   const seen = new Set<string>();
   for (const [index, row] of rows.entries()) {
-    const fill = byRef.get(row.rowRef), grid = rhythm.find(r => r.rowRef === row.rowRef)?.pattern;
+    const fill = byRef.get(row.rowRef), grid = rhythm.find(r => r.rowRef === row.rowRef)?.events;
     if (!fill || !grid || seen.has(row.rowRef)) throw new Error("INVALID_PITCH_ROW_REF: " + row.rowRef);
     seen.add(row.rowRef);
-    const attacks = [...grid].filter(cell => cell === "x").length;
-    if (fill.pitches.length !== attacks) throw new Error("PITCH_COUNT_MISMATCH: " + row.rowRef + " pattern=" + grid + " requires exactly " + attacks + " actual notes; received " + fill.pitches.length + ". Return chosen notes, not a palette. Zero attacks requires [].");
+    const attacks = rhythmAttackCount(grid);
+    if (fill.pitches.length !== attacks) throw new Error("PITCH_COUNT_MISMATCH: " + row.rowRef + " requires exactly " + attacks + " actual notes for the locked rhythm; received " + fill.pitches.length + ". Return chosen notes, not a palette. Zero attacks requires [].");
     let cursor = 0;
-    const body = [...grid].map(cell => cell === "x" ? fill.pitches[cursor++] : cell === "-" ? "hold" : "rest");
+    const body = grid.map((event) => notationToken(
+      event.token === "attack" ? fill.pitches[cursor++] : event.token,
+      event.weight,
+    ));
     candidate.rowReplacements.push({ trackRef: row.trackRef, bar: row.bar, beat: row.beat, body: "[" + body.join(" ") + "]" });
   }
   return candidate;
@@ -677,12 +844,12 @@ function bindPitch(output: unknown, rows: BoundRow[], rhythm: BoundRhythm[], sco
 
 function validateLockedRhythm(candidate: Candidate, rhythm: BoundRhythm[] | null) {
   if (!rhythm) return;
-  const expected = new Map(rhythm.map(r => [r.rowRef, r.pattern]));
+  const expected = new Map(rhythm.map(r => [r.rowRef, r.events]));
   for (const [index, row] of candidate.rowReplacements.entries()) {
-    const pattern = expected.get("r" + (index + 1));
+    const events = expected.get("r" + (index + 1));
     const text = row.body.startsWith("[") && row.body.endsWith("]") ? row.body.slice(1, -1) : row.body;
-    const actual = parseRowBody(text).map(item => item.token === "rest" ? "." : item.token === "hold" ? "-" : "x").join("");
-    if (!pattern || actual !== pattern) throw new Error("RHYTHM_LOCK_VIOLATION: expected " + pattern + " but received " + actual);
+    const actual = rhythmEventsFromNotation(text);
+    if (!events || JSON.stringify(actual) !== JSON.stringify(events)) throw new Error("RHYTHM_LOCK_VIOLATION: rhythm events changed");
   }
 }
 
@@ -899,23 +1066,33 @@ async function runPassages(
       const alias = trackAliases(input.song).get(group[0].trackRef) ?? group[0].trackRef;
       const task = plan.tasks.find((candidate) => candidate.track === alias && group.every((row) => row.bar >= candidate.startBar && row.bar <= candidate.endBar));
       if (!task) throw new Error("MISSING_TASK_FOR_GROUP: " + alias);
-      const prompt = trackRhythmPrompt(task, task.instrumentId, group, tutorial, plan.progression);
+      const rhythmFormat = input.rhythmFormat ?? "json";
+      const prompt = trackRhythmPrompt(task, task.instrumentId, group, tutorial, rhythmFormat);
       let feedback = "";
       for (let attempt = 0; attempt < MAX_MODEL_ATTEMPTS; attempt++) {
         let output: unknown;
         try {
           check(input);
-          output = await adapter.rhythm!(prompt + feedback, input.signal);
-          const rhythm = bindRhythm(output, group);
-          if (instrumentDefinition(task.instrumentId)?.kind === "hit" && rhythm.some((row) => row.pattern.includes("-")))
-            throw new Error("PERCUSSION_HOLD: hit tracks use x and . only");
+          output = await adapter.rhythm!(prompt + feedback, input.signal, rhythmFormat, {
+            stage: "rhythm",
+            rhythmFormat,
+            track: task.track,
+            startBar: group[0].bar,
+            endBar: group.at(-1)!.bar,
+            rowRefs: group.map((row) => row.rowRef),
+            attempt: attempt + 1,
+          });
+          const rhythm = bindRhythm(output, group, rhythmFormat);
+          if (instrumentDefinition(task.instrumentId)?.kind === "hit" && rhythm.some((row) => row.events.some((event) => event.token === "hold")))
+            throw new Error("PERCUSSION_HOLD: percussion rhythm may use attack and rest only");
           validateHarmonicRhythmBoundaries(task, plan.progression, group, rhythm);
+          await input.trace?.("rhythm_output", { format: rhythmFormat, track: task.track, output });
           return { index, rhythm };
         } catch (error) {
           if (isCancelled(input, error) || attempt === MAX_MODEL_ATTEMPTS - 1) throw error;
           const message = errorMessage(error);
-          await input.trace?.("rhythm_validation_failed", { index, attempt, message, output: output === undefined ? undefined : JSON.stringify(output).slice(0, 6000) });
-          await input.trace?.("model_retry", { stage: "rhythm", index, attempt: attempt + 1, maxAttempts: MAX_MODEL_ATTEMPTS, error: message });
+          await input.trace?.("rhythm_validation_failed", { index, attempt, message, rhythmFormat, track: task.track, startBar: group[0].bar, endBar: group.at(-1)!.bar, rowRefs: group.map((row) => row.rowRef), output: output === undefined ? undefined : JSON.stringify(output).slice(0, 6000) });
+          await input.trace?.("model_retry", { stage: "rhythm", index, track: task.track, startBar: group[0].bar, endBar: group.at(-1)!.bar, rowRefs: group.map((row) => row.rowRef), rhythmFormat, attempt: attempt + 1, maxAttempts: MAX_MODEL_ATTEMPTS, error: message });
           input.progress("retrying", { stage: "rhythm", track: task.track, attempt: attempt + 2, maxAttempts: MAX_MODEL_ATTEMPTS, error: message });
           feedback = section("REPAIR", retryPayload(error, output));
         }
@@ -965,7 +1142,7 @@ async function runPassages(
     const rhythm = rhythmByGroup.get(index) ?? null;
     if (rhythm) {
       input.progress("rhythm", { rows: rhythm.length });
-      await input.trace?.("rhythm_grid", { rows: rhythm });
+      await input.trace?.("rhythm_grid", { format: input.rhythmFormat ?? "json", rows: rhythm });
     }
     const instrument = working.music.tracks.find(t => t.id === rows[0].trackRef);
     const instrumentKind = instrument ? listInstruments().find(i => i.id === instrument.instrumentId)?.kind : undefined;
@@ -978,7 +1155,7 @@ async function runPassages(
         trackRef: row.trackRef,
         bar: row.bar,
         beat: row.beat,
-        body: "[" + rhythm[i].pattern.split("").map(cell => cell === "x" ? "hit" : "rest").join(" ") + "]",
+        body: "[" + rhythm[i].events.map((event) => notationToken(event.token === "attack" ? "hit" : "rest", event.weight)).join(" ") + "]",
       }));
       const result = buildCandidate(working, passage, percussion);
       aggregate.rowReplacements.push(...result.candidate.rowReplacements.map((row) => ({ ...row, trackRef: aggregateTrackRef(row.trackRef) })));
@@ -988,13 +1165,19 @@ async function runPassages(
     if (rhythm && task.type === "harmonic") {
       const chordRows = emptyCandidate(passage);
       chordRows.rowReplacements = rows.map((row, rowIndex) => {
-        const pattern = rhythm[rowIndex].pattern;
-        const tokens = [...pattern].map((cell, slot) => {
-          if (cell !== "x") return cell === "-" ? "hold" : "rest";
-          const absoluteBeat = (row.bar - 1) * 4 + row.beat - 1 + slot / 4;
-          const chord = plan.progression.find((item) => item.startBeat <= absoluteBeat && item.endBeat > absoluteBeat);
-          if (!chord) throw new Error("MISSING_CHORD_AT_BEAT: " + absoluteBeat);
-          return "{" + resolveChord(chord.root, chord.quality as (typeof CHORD_QUALITIES)[number], task.register!, task.voicing!).join(",") + "}";
+        const events = rhythm[rowIndex].events;
+        const total = rhythmWeight(events);
+        let elapsed = 0;
+        const tokens = events.map((event) => {
+          let token = event.token === "hold" ? "hold" : "rest";
+          if (event.token === "attack") {
+            const absoluteBeat = add(frac((row.bar - 1) * 4 + row.beat - 1), frac(elapsed, total));
+            const chord = plan.progression.find((item) => item.startBeat <= value(absoluteBeat) && item.endBeat > value(absoluteBeat));
+            if (!chord) throw new Error("MISSING_CHORD_AT_BEAT: " + value(absoluteBeat));
+            token = "{" + resolveChord(chord.root, chord.quality as (typeof CHORD_QUALITIES)[number], task.register!, task.voicing!, instrumentPlayableRange(task.instrumentId)).join(",") + "}";
+          }
+          elapsed += event.weight;
+          return notationToken(token, event.weight);
         });
         return { trackRef: row.trackRef, bar: row.bar, beat: row.beat, body: "[" + tokens.join(" ") + "]" };
       });
@@ -1012,15 +1195,23 @@ async function runPassages(
         let pitchOutput: unknown;
         try {
           check(input);
-          pitchOutput = await adapter.pitch(prompt + feedback, input.signal);
-          await input.trace?.("pitch_fill", { output: pitchOutput, rows: rows.length, attempt });
+          pitchOutput = await adapter.pitch(prompt + feedback, input.signal, {
+            stage: "pitch",
+            rhythmFormat: input.rhythmFormat ?? "json",
+            track: task.track,
+            startBar: rows[0].bar,
+            endBar: rows.at(-1)!.bar,
+            rowRefs: rows.map((row) => row.rowRef),
+            attempt: attempt + 1,
+          });
+          await input.trace?.("pitch_fill", { output: pitchOutput, rows: rows.length, track: task.track, startBar: rows[0].bar, endBar: rows.at(-1)!.bar, rowRefs: rows.map((row) => row.rowRef), rhythmFormat: input.rhythmFormat ?? "json", attempt });
           result = buildCandidate(working, passage, bindPitch(pitchOutput, rows, rhythm, passage));
           break;
         } catch (error) {
           if (isCancelled(input, error) || attempt === MAX_MODEL_ATTEMPTS - 1) throw error;
           const message = errorMessage(error);
-          await input.trace?.("pitch_validation_failed", { attempt, message, output: pitchOutput === undefined ? undefined : JSON.stringify(pitchOutput).slice(0, 6000) });
-          await input.trace?.("model_retry", { stage: "pitch", attempt: attempt + 1, maxAttempts: MAX_MODEL_ATTEMPTS, error: message });
+          await input.trace?.("pitch_validation_failed", { attempt, message, track: task.track, startBar: rows[0].bar, endBar: rows.at(-1)!.bar, rowRefs: rows.map((row) => row.rowRef), rhythmFormat: input.rhythmFormat ?? "json", output: pitchOutput === undefined ? undefined : JSON.stringify(pitchOutput).slice(0, 6000) });
+          await input.trace?.("model_retry", { stage: "pitch", track: task.track, startBar: rows[0].bar, endBar: rows.at(-1)!.bar, rowRefs: rows.map((row) => row.rowRef), rhythmFormat: input.rhythmFormat ?? "json", attempt: attempt + 1, maxAttempts: MAX_MODEL_ATTEMPTS, error: message });
           input.progress("repairing", { stage: "pitch", attempt: attempt + 1, error: message });
           input.progress("retrying", { stage: "pitch", attempt: attempt + 2, maxAttempts: MAX_MODEL_ATTEMPTS, error: message });
           feedback = section("REPAIR", retryPayload(error, pitchOutput));
@@ -1068,12 +1259,13 @@ export const requestGraph = new StateGraph(requestState)
     check(s.input);
     const scope = requestScope(s.input),
       groups = partitionRows(scope),
-      tutorial = await rhythmTutorial();
+      tutorial = await rhythmTutorial(s.input.rhythmFormat ?? "json");
     await s.input.trace?.("scope_resolved", {
       scope,
       passageCount: groups.length,
       mode: "whole_song",
-      selectionIgnoredForAi: s.input.selection.kind !== "song",
+      rhythmFormat: s.input.rhythmFormat ?? "json",
+      selectionAppliedAtSave: true,
     });
     return { scope, groups, tutorial, plan: null };
   })
@@ -1087,7 +1279,21 @@ export const requestGraph = new StateGraph(requestState)
     for (let attempt = 0; attempt < MAX_MODEL_ATTEMPTS; attempt++) {
       try {
         check(input);
-        const candidate = OrchestratorPlanSchema.parse(await adapter.orchestrate(prompt + feedback, input.signal));
+        const rawCandidate = OrchestratorPlanSchema.parse(await adapter.orchestrate(
+          prompt + feedback,
+          input.signal,
+          {
+            stage: "orchestration",
+            rhythmFormat: input.rhythmFormat ?? "json",
+            attempt: attempt + 1,
+          },
+        ));
+        const candidate = normalizeOrchestrationPlan(input, rawCandidate);
+        const instrumentCorrections = rawCandidate.tasks
+          .map((task, index) => ({ task: task.track, from: task.instrumentId, to: candidate.tasks[index].instrumentId }))
+          .filter((item) => item.from !== item.to);
+        if (instrumentCorrections.length)
+          await input.trace?.("plan_normalized", { instrumentCorrections });
         validateOrchestrationPlan(input, candidate);
         plan = candidate;
         break;
@@ -1131,5 +1337,10 @@ export async function runAgent(
     { signal: input.signal, recursionLimit: 16 },
   );
   check(input);
-  return state.result;
+  const result = state.result;
+  if (state.plan?.key) {
+    result.candidate.metadataChanges.push({ target: "song", changes: { key: { root: state.plan.key } } });
+    result.next.music.key = { root: state.plan.key };
+  }
+  return result;
 }

@@ -1,6 +1,6 @@
 # Music language tutorial — draft 0.1
 
-This is the app's compact musical language. It describes musical events, not synthesizer settings. A track selects an instrument preset; the application handles its sound. AI workers currently return compact JSON rhythm and pitch contracts; the backend uses this notation internally to validate and materialize the result.
+This document describes the app's canonical stored song notation. It describes musical events, not synthesizer settings. A track selects an instrument preset; the application handles its sound. The rhythm worker can currently return either weighted JSON events or a compact `x / - / .` rhythm pattern inside a JSON row wrapper. The server converts either form into one internal event representation, then combines it with pitch output and materializes this canonical song notation.
 
 The audio below is generated directly from the complete examples in this document by [the example renderer](scripts/render-language-examples.mjs). These are illustrative chip sounds, not the final instrument library. This is a notation prototype, not the application implementation.
 

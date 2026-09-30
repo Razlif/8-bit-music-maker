@@ -119,11 +119,11 @@ describe("scope regressions", () => {
       }),
       c = emptyCandidate(scope);
     scope.newTrackRules = [
-      { ref: "new_lead", permittedSpan: { start: frac(0), end: frac(1) } },
+      { ref: "new_lead", type: "melodic", permittedSpan: { start: frac(0), end: frac(1) } },
     ];
     scope.requiredRows.push({ trackRef: "new_lead", bar: 1, beat: 1 });
     c.newTracks = [
-      { ref: "new_lead", name: "Answer", instrumentId: "soft_lead" },
+      { ref: "new_lead", name: "Answer", type: "melodic", instrumentId: "soft_lead" },
     ];
     c.rowReplacements = [
       { trackRef: "track-lead", bar: 1, beat: 1, body: "[E5]" },

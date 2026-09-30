@@ -8,7 +8,12 @@ graphify-out/
 !.env.example
 apps/web/playwright-report/
 apps/web/test-results/
+!apps/web/test-results/
+apps/web/test-results/*
+!apps/web/test-results/retro-desktop.png
+!apps/web/test-results/retro-mobile.png
 songs/
+song-archives/
 .local/
 *.log
 

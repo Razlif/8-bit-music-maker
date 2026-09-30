@@ -23,16 +23,15 @@ it("keeps worker passages track-local and bounded", async () => {
   const song = newSong(crypto.randomUUID()); song.music.bars = 8;
   const rhythm = vi.fn(fake.rhythm), pitch = vi.fn(fake.pitch);
   const result = await runAgent({ ...input(song), selection: { kind: "song" } }, { ...fake, rhythm, pitch });
-  expect(rhythm).toHaveBeenCalledTimes(8);
+  expect(rhythm).toHaveBeenCalledTimes(12);
   expect(pitch).toHaveBeenCalledTimes(4);
   for (const call of rhythm.mock.calls) {
     const start = call[0].lastIndexOf("TARGET_ROWS\n") + "TARGET_ROWS\n".length;
-    const end = call[0].indexOf("\nRHYTHM_LANGUAGE", start);
-    const rows = JSON.parse(call[0].slice(start, end));
+    const rows = JSON.parse(call[0].slice(start).split(/\n[A-Z_]+\n/)[0]);
     expect(rows.length).toBeLessThanOrEqual(16);
     expect(new Set(rows.map((row: any) => row.track))).toHaveLength(1);
   }
-  expect(result.candidate.rowReplacements).toHaveLength(8 * 4 * 4);
+  expect(result.candidate.rowReplacements).toHaveLength(8 * 4 * song.music.tracks.length);
 });
 
 it("supports multiple new tracks in one orchestration", async () => {
@@ -53,7 +52,7 @@ it("supports multiple new tracks in one orchestration", async () => {
     };
   };
   const result = await runAgent({ ...input(song), selection: { kind: "song" } }, { ...fake, orchestrate });
-  expect(result.next.music.tracks).toHaveLength(6);
+  expect(result.next.music.tracks).toHaveLength(8);
   expect(result.candidate.newTracks).toHaveLength(2);
 });
 
