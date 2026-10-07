@@ -31,8 +31,9 @@ import {
   type Scope,
   type Fraction,
 } from "@eight-bit/core";
-import { getConfig } from "./config.js";
+import { getConfig, type AiProvider } from "./config.js";
 import { streamStructured, streamStructuredAnthropic, ModelOutputError } from "./model-stream.js";
+import { streamStructuredClaudeSubscription } from "./claude-subscription.js";
 import { diagnoseCandidate } from "./diagnostics.js";
 import {
   EFFECT_SYSTEM,
@@ -43,7 +44,7 @@ import {
 export type Progress = (type: string, payload?: unknown) => void;
 export type Trace = (type: string, payload: unknown) => Promise<void>;
 export type ModelCallContext = {
-  provider?: "openai" | "openrouter" | "anthropic";
+  provider?: AiProvider;
   stage?: "orchestration" | "rhythm" | "pitch" | "legacy" | "effect";
   rhythmFormat?: "json" | "notation";
   track?: string;
@@ -154,7 +155,7 @@ export function createModelAdapter(
 ): ModelAdapter {
   const config = getConfig(),
     provider = config.provider ?? "openai",
-    openaiClient = provider === "anthropic"
+    openaiClient = provider === "anthropic" || provider === "claude-subscription"
       ? undefined
       : new OpenAI({
           apiKey: provider === "openrouter" ? config.openrouterKey : config.openaiKey,
@@ -184,7 +185,9 @@ export function createModelAdapter(
     reasoningEffort: "low" | "medium" | "high",
     systemInstruction?: string,
     context: ModelCallContext = {},
-  ) => provider === "anthropic"
+  ) => provider === "claude-subscription"
+    ? streamStructuredClaudeSubscription({ bin: config.claudeBin ?? "claude", timeoutMs: config.runTimeoutMs }, model, schema, name, input, signal, progress, trace, maxOutputTokens, reasoningEffort, systemInstruction, { ...context, provider })
+    : provider === "anthropic"
     ? streamStructuredAnthropic(anthropicClient!, model, schema, name, input, signal, progress, trace, maxOutputTokens, reasoningEffort, systemInstruction, { ...context, provider })
     : streamStructured(openaiClient!, model, schema, name, input, signal, progress, trace, maxOutputTokens, reasoningEffort, systemInstruction, { ...context, provider });
   return {

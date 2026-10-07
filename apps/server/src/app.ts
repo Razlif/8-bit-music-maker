@@ -14,7 +14,7 @@ import {
 } from "@eight-bit/core";
 import { Library, type SaveResult } from "./library.js";
 import { createModelAdapter, runAgent, type ModelAdapter } from "./agent.js";
-import { getConfig, type Config } from "./config.js";
+import { aiConfigured, getConfig, type Config } from "./config.js";
 import {
   EffectRecipeSchema,
   exampleEffectRecipe,
@@ -89,7 +89,7 @@ function errorInfo(e: unknown) {
       code: "PROVIDER_ERROR",
       message:
         status === 401
-          ? "AI provider authentication failed. Check the selected provider API key."
+          ? "AI provider authentication failed. Check the selected provider API key or subscription login."
           : status === 429
             ? "AI provider rate limit or quota exceeded."
             : "AI provider request failed (" + status + ").",
@@ -109,7 +109,7 @@ export async function createApp(
     library = new Library(config.songsDir),
     runs = new Map<string, Run>();
   const effectAdapter =
-    adapter?.effect ? adapter : config.providerKey ? createModelAdapter() : undefined;
+    adapter?.effect ? adapter : aiConfigured(config) ? createModelAdapter() : undefined;
   const transcriptionClient = config.openaiKey
     ? new OpenAI({
         apiKey: config.openaiKey,
@@ -156,7 +156,7 @@ export async function createApp(
   });
   app.get("/api/health", async () => ({
     ok: true,
-    agent: !!config.openaiKey || !!adapter,
+    agent: aiConfigured(config) || !!adapter,
   }));
   app.post("/api/effects/recipe", async (req) => {
     const { instruction } = z
@@ -306,10 +306,10 @@ export async function createApp(
       )
     )
       throw new Error("RUN_BUSY");
-    if (!config.providerKey && !adapter)
+    if (!aiConfigured(config) && !adapter)
       return reply.code(422).send({
         code: "MISSING_API_KEY",
-        message: "Add the selected provider API key to the root .env and restart the server.",
+        message: "Add the selected provider API key (or set AI_PROVIDER=claude-subscription) in the root .env and restart the server.",
       });
     const run: Run = {
       id: crypto.randomUUID(),

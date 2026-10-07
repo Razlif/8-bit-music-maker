@@ -33,7 +33,9 @@ OPENAI_API_KEY=your-api-key
 
 Model defaults are in `.env.example`. To choose your own models, set `AI_ORCHESTRATOR_MODEL` for the composer that plans the arrangement and `AI_COMPOSER_MODEL` for its workers and effects. Use model IDs available to your provider account.
 
-For another provider, set `AI_PROVIDER=openrouter` with `OPENROUTER_API_KEY`, or `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY`. You only need the key for your chosen provider. Microphone transcription additionally requires an OpenAI key.
+For another provider, set `AI_PROVIDER=openrouter` with `OPENROUTER_API_KEY`, or `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY`. You only need the key for your chosen provider.
+
+To use a **Claude subscription** (Pro/Max) instead of an API key, install [Claude Code](https://claude.com/claude-code), run `claude` once and log in, then set `AI_PROVIDER=claude-subscription`. The server calls the local `claude` CLI, so no key is needed; usage counts against your subscription limits. Microphone transcription additionally requires an OpenAI key.
 
 Build and start:
 

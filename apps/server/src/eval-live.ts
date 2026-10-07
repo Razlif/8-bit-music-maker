@@ -2,9 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { newSong, frac, type Selection } from "@eight-bit/core";
 import { runAgent } from "./agent.js";
-import { getConfig } from "./config.js";
+import { aiConfigured, getConfig } from "./config.js";
 const config = getConfig();
-if (!config.providerKey) {
+if (!aiConfigured(config)) {
   console.log(
     "LIVE_EVAL_PENDING: add the selected provider API key to the root .env. No model calls made.",
   );

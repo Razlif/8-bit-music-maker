@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from "vitest";
-import { getConfig } from "../src/config.js";
+import { aiConfigured, getConfig } from "../src/config.js";
 
 const names = [
   "AI_PROVIDER",
@@ -14,6 +14,9 @@ const names = [
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_ORCHESTRATOR_MODEL",
   "ANTHROPIC_COMPOSER_MODEL",
+  "CLAUDE_SUBSCRIPTION_ORCHESTRATOR_MODEL",
+  "CLAUDE_SUBSCRIPTION_COMPOSER_MODEL",
+  "CLAUDE_BIN",
 ] as const;
 const original = new Map(names.map((name) => [name, process.env[name]]));
 
@@ -49,4 +52,20 @@ it("selects Anthropic and allows common model overrides", () => {
     orchestratorModel: "claude-opus-5-5",
     composerModel: "claude-haiku-4-5",
   });
+});
+
+it("selects the Claude subscription provider without any API key", () => {
+  for (const name of names) delete process.env[name];
+  process.env.AI_PROVIDER = "claude-subscription";
+  process.env.CLAUDE_SUBSCRIPTION_COMPOSER_MODEL = "opus";
+  const config = getConfig();
+  expect(config).toMatchObject({
+    provider: "claude-subscription",
+    providerKey: undefined,
+    claudeBin: "claude",
+    orchestratorModel: "sonnet",
+    composerModel: "opus",
+  });
+  expect(aiConfigured(config)).toBe(true);
+  expect(aiConfigured({ ...config, provider: "anthropic" })).toBe(false);
 });

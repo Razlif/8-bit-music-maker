@@ -746,8 +746,9 @@ function App() {
             <aside className="agent">
               {!agent && (
                 <p className="hint">
-                  AI is disabled. Add OPENAI_API_KEY to the root .env and
-                  restart. Manual editing and playback work without a key.
+                  AI is disabled. Add a provider API key, or set
+                  AI_PROVIDER=claude-subscription, in the root .env and
+                  restart. Manual editing and playback work without AI.
                 </p>
               )}
                 <label className="rhythm-format-control">

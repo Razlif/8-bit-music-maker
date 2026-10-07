@@ -8,7 +8,8 @@ export const APP_ROOT = path.resolve(
 );
 const envFile = path.join(APP_ROOT, ".env");
 if (existsSync(envFile)) loadEnvFile(envFile);
-export type AiProvider = "openai" | "openrouter" | "anthropic";
+export type AiProvider = "openai" | "openrouter" | "anthropic" | "claude-subscription";
+const PROVIDERS: AiProvider[] = ["openai", "openrouter", "anthropic", "claude-subscription"];
 export type Config = {
   port: number;
   songsDir: string;
@@ -20,6 +21,8 @@ export type Config = {
   anthropicKey?: string;
   /** Key for the selected composition provider, if configured. */
   providerKey?: string;
+  /** Claude Code executable used by the claude-subscription provider. */
+  claudeBin?: string;
   orchestratorModel: string;
   composerModel: string;
   rootDir: string;
@@ -37,8 +40,8 @@ export function getConfig(): Config {
   )
     throw new Error("INVALID_CONFIG: PORT or RUN_TIMEOUT_MS");
   const requestedProvider = (process.env.AI_PROVIDER?.trim().toLowerCase() || "openai") as AiProvider;
-  if (!["openai", "openrouter", "anthropic"].includes(requestedProvider))
-    throw new Error("INVALID_CONFIG: AI_PROVIDER must be openai, openrouter, or anthropic");
+  if (!PROVIDERS.includes(requestedProvider))
+    throw new Error("INVALID_CONFIG: AI_PROVIDER must be openai, openrouter, anthropic, or claude-subscription");
   const openaiKey = process.env.OPENAI_API_KEY?.trim() || undefined,
     openrouterKey = process.env.OPENROUTER_API_KEY?.trim() || undefined,
     anthropicKey = process.env.ANTHROPIC_API_KEY?.trim() || undefined,
@@ -46,12 +49,15 @@ export function getConfig(): Config {
       ? openaiKey
       : requestedProvider === "openrouter"
         ? openrouterKey
-        : anthropicKey,
-    providerPrefix = requestedProvider.toUpperCase(),
+        : requestedProvider === "anthropic"
+          ? anthropicKey
+          : undefined,
+    providerPrefix = requestedProvider.toUpperCase().replace("-", "_"),
     defaults = {
       openai: { orchestrator: "gpt-6-luna", composer: "gpt-5-nano" },
       openrouter: { orchestrator: "openai/gpt-6-luna", composer: "openai/gpt-5-nano" },
       anthropic: { orchestrator: "claude-sonnet-4-5", composer: "claude-haiku-4-5" },
+      "claude-subscription": { orchestrator: "sonnet", composer: "haiku" },
     }[requestedProvider];
   return {
     rootDir: APP_ROOT,
@@ -63,6 +69,7 @@ export function getConfig(): Config {
     openrouterKey,
     anthropicKey,
     providerKey,
+    claudeBin: process.env.CLAUDE_BIN?.trim() || "claude",
     orchestratorModel:
       process.env.AI_ORCHESTRATOR_MODEL?.trim() ||
       process.env[providerPrefix + "_ORCHESTRATOR_MODEL"]?.trim() ||
@@ -73,3 +80,6 @@ export function getConfig(): Config {
       defaults.composer,
   };
 }
+/** True when the selected provider can run: an API key, or the keyless subscription login. */
+export const aiConfigured = (config: Config) =>
+  !!config.providerKey || config.provider === "claude-subscription";

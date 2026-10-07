@@ -1,7 +1,7 @@
 # Running CHIP Studio
 
 1. Install Node.js 22.16+ and run `npm install` in the project directory.
-2. Copy `.env.example` to `.env`; leave `AI_PROVIDER=openai` for OpenAI, or choose `openrouter`/`anthropic` and set that provider's API key.
+2. Copy `.env.example` to `.env`; leave `AI_PROVIDER=openai` for OpenAI, or choose `openrouter`/`anthropic` and set that provider's API key, or choose `claude-subscription` to use a logged-in Claude Code CLI with no API key.
 3. Run `npm run build` after code changes.
 4. Run `npm start` and open http://127.0.0.1:3001.
 
