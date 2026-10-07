@@ -21,6 +21,8 @@ vi.mock("openai", () => ({ default: class {
 } }));
 import { createModelAdapter, runAgent, type ModelAdapter } from "../src/agent.js";
 import { createApp } from "../src/app.js";
+// These tests exercise the mocked OpenAI client, whatever provider the local .env selects.
+process.env.AI_PROVIDER = "openai";
 
 it("captures exact requests before the provider and malformed responses before parsing", async () => {
   const entries: any[] = [];

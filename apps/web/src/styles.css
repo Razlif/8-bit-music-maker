@@ -2080,3 +2080,42 @@ summary:focus-visible {
     display: grid;
   }
 }
+
+.sheet-attach {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.sheet-attach > button {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid #4a4960;
+  border-radius: 0;
+  color: #eeeaf9;
+  background: #1d202c;
+  font: 10px "Press Start 2P", monospace;
+}
+.sheet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 4px 3px 8px;
+  border: 1px solid #4a4960;
+  color: #aaa5c4;
+  font-size: 11px;
+}
+.sheet-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sheet-chip > button {
+  padding: 0 6px;
+  border: 0;
+  color: inherit;
+  background: none;
+}

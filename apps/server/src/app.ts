@@ -46,11 +46,23 @@ const SelectionSchema = z.discriminatedUnion("kind", [
     })
     .strict(),
 ]);
+const MAX_SHEET_BYTES = 10 * 1024 * 1024;
 const RequestSchema = z
   .object({
     instruction: z.string().trim().min(1).max(4000),
     selection: SelectionSchema,
     rhythmFormat: z.enum(["json", "notation"]).default("json"),
+    // Optional sheet-music PDF, base64 encoded ("JVBERi" is "%PDF").
+    sheet: z
+      .object({
+        filename: z.string().trim().min(1).max(200),
+        data: z
+          .string()
+          .max(Math.ceil((MAX_SHEET_BYTES * 4) / 3) + 4, "The PDF is larger than 10 MB.")
+          .regex(/^JVBERi[A-Za-z0-9+/]*={0,2}$/, "The uploaded file is not a PDF."),
+      })
+      .strict()
+      .optional(),
     expectedRevision: z.number().int().nonnegative(),
   })
   .strict();
@@ -293,7 +305,7 @@ export async function createApp(
     );
     return run ? publicRun(run) : null;
   });
-  app.post("/api/songs/:id/runs", async (req, reply) => {
+  app.post("/api/songs/:id/runs", { bodyLimit: 15 * 1024 * 1024 }, async (req, reply) => {
     const id = (req.params as any).id,
       body = RequestSchema.parse(req.body),
       song = await library.load(id);
@@ -350,6 +362,7 @@ export async function createApp(
             instruction: body.instruction,
             selection: body.selection,
             rhythmFormat: body.rhythmFormat,
+            sheet: body.sheet,
             signal: run.controller.signal,
             progress: (type, payload) => {
               if (run.status === "running") emit(run, type, payload);

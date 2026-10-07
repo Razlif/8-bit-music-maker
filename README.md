@@ -54,6 +54,8 @@ Open **http://127.0.0.1:3001**. Keep the terminal running while using the app. O
 4. Play the music, adjust track volumes, change instruments, or edit notes.
 5. Ask for revisions, then export a WAV with the floppy-disk button.
 
+To start from written music, click **Upload sheet music (PDF)** under the request box and send. The AI reads the opening of the score (as many bars as the song has, re-barred to 4/4) and writes each part onto a track. Add a request to change how it is played, or leave the box empty to transcribe it as written. Note reading is done by the AI model, so check the result against the page; dense or scanned scores are less reliable. PDFs up to 10 MB.
+
 To edit just part of a song, select a track or highlight an area before submitting your request. The AI receives the full song for context, but only changes inside your selection are saved. Click inside the selection or press Escape to clear it and return to the whole song.
 
 Existing notes crossing a selection boundary stay intact. New notes are clipped to the available selected space. Partial edits preserve other tracks, instruments, mix settings, and the song's key and tempo.
