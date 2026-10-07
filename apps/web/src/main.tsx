@@ -68,6 +68,7 @@ const workCues: Record<WorkPhase, WorkCue[]> = {
 };
 const stageLabels: Record<string, string> = {
   reading: "Reading music",
+  reading_sheet: "Reading the sheet music",
   planning: "Reading the song",
   arranging: "Choosing the musical work",
   passage: "Preparing the next passage",
@@ -78,6 +79,7 @@ const stageLabels: Record<string, string> = {
   retrying: "Retrying worker",
 };
 const modelPurposePhases: Record<string, WorkPhase> = {
+  sheet_transcription: "orchestration",
   music_orchestration: "orchestration",
   legacy_music_plan: "orchestration",
   music_plan: "orchestration",
@@ -87,6 +89,8 @@ const modelPurposePhases: Record<string, WorkPhase> = {
   legacy_music_replacement: "pitch",
   music_candidate: "pitch",
 };
+const MAX_SHEET_BYTES = 10 * 1024 * 1024;
+const SHEET_DEFAULT_REQUEST = "Transcribe the attached sheet music into this song as faithfully as possible.";
 function App() {
   const [mode, setMode] = useState<"music" | "effects">("music");
   const [effectActivity, setEffectActivity] = useState<{ scene: CompanionScene; speech: string }>({ scene: "idle", speech: "Let’s make a little sound." });
@@ -96,7 +100,9 @@ function App() {
     [selected, setSelected] = useState<Selection>({ kind: "song" });
   const [trackId, setTrackId] = useState(""),
     [prompt, setPrompt] = useState(""),
-    [rhythmFormat, setRhythmFormat] = useState<"json" | "notation">("json");
+    [rhythmFormat, setRhythmFormat] = useState<"json" | "notation">("json"),
+    [sheet, setSheet] = useState<{ filename: string; data: string } | null>(null);
+  const sheetInput = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState("Ready"),
     [error, setError] = useState(""),
     [agentThought, setAgentThought] = useState("Drop in a thought. I’ll turn it into a loop."),
@@ -489,7 +495,7 @@ function App() {
     };
   };
   const send = async () => {
-    if (!song || !prompt.trim() || runId || launching || busy) return;
+    if (!song || (!prompt.trim() && !sheet) || runId || launching || busy) return;
     setLaunching(true);
     setError("");
     clearSpeechHold();
@@ -501,20 +507,41 @@ function App() {
       const current = songRef.current;
       if (!current) return;
       const result = await post("/songs/" + current.id + "/runs", {
-        instruction: prompt,
+        instruction: prompt.trim() || SHEET_DEFAULT_REQUEST,
         rhythmFormat,
+        sheet: sheet ?? undefined,
         // AI composition is whole-song in the demo. Manual selection remains
         // available for playback/editing, but does not silently narrow the
         // dispatcher contract.
         selection: { kind: "song" },
         expectedRevision: current.revision,
       });
+      setSheet(null);
       watchRun(result.runId);
     } catch (e) {
       showError(e);
       setRunId(null);
     } finally {
       setLaunching(false);
+    }
+  };
+  const attachSheet = async (file: File | undefined) => {
+    if (sheetInput.current) sheetInput.current.value = "";
+    if (!file) return;
+    try {
+      if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf"))
+        throw new Error("Sheet music must be a PDF file.");
+      if (file.size > MAX_SHEET_BYTES) throw new Error("The PDF is larger than 10 MB.");
+      const url = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Could not read " + file.name));
+        reader.readAsDataURL(file);
+      });
+      setError("");
+      setSheet({ filename: file.name.slice(0, 200), data: url.slice(url.indexOf(",") + 1) });
+    } catch (e) {
+      showError(e);
     }
   };
   const cancel = async () => {
@@ -746,8 +773,9 @@ function App() {
             <aside className="agent">
               {!agent && (
                 <p className="hint">
-                  AI is disabled. Add OPENAI_API_KEY to the root .env and
-                  restart. Manual editing and playback work without a key.
+                  AI is disabled. Add a provider API key, or set
+                  AI_PROVIDER=claude-subscription, in the root .env and
+                  restart. Manual editing and playback work without AI.
                 </p>
               )}
                 <label className="rhythm-format-control">
@@ -772,7 +800,7 @@ function App() {
                     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") void send();
                   }}
                   rows={2}
-                  placeholder="Make the bass bounce. Give the melody a little mystery…"
+                  placeholder={sheet ? "Optional: say how to play it. Leave empty to transcribe the sheet as written." : "Make the bass bounce. Give the melody a little mystery…"}
                 />
                 <div className="request-action">
                   <DictationButton
@@ -782,11 +810,41 @@ function App() {
                   />
                   <Cassette
                     state={runId || launching ? "working" : error ? "error" : "idle"}
-                    disabled={runId ? false : !agent || launching || busy || !prompt.trim()}
+                    disabled={runId ? false : !agent || launching || busy || (!prompt.trim() && !sheet)}
                     onClick={runId ? () => void cancel().catch(showError) : send}
                   />
                 </div>
               </div>
+                <div className="sheet-attach">
+                  <input
+                    ref={sheetInput}
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    aria-label="Sheet music PDF"
+                    hidden
+                    onChange={(e) => void attachSheet(e.target.files?.[0])}
+                  />
+                  <button
+                    type="button"
+                    disabled={!agent || !!runId || launching || busy}
+                    onClick={() => sheetInput.current?.click()}
+                  >
+                    {sheet ? "Replace sheet PDF" : "♪ Upload sheet music (PDF)"}
+                  </button>
+                  {sheet && (
+                    <span className="sheet-chip">
+                      <span title={sheet.filename}>{sheet.filename}</span>
+                      <button
+                        type="button"
+                        aria-label="Remove sheet music"
+                        disabled={!!runId || launching}
+                        onClick={() => setSheet(null)}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                </div>
             </aside>
             <div className="studio">
               <section className="editor">

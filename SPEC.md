@@ -29,6 +29,10 @@ The timeline supports rectangular time/track selection for direct editing and lo
 
 Piano-roll Snap is an editing aid. The values mean positions per beat: `1/8` = 2, Triplet = 3, `1/16` = 4, Sixteenth triplet = 6, and `1/32` = 8. Snap affects newly drawn notes and manual moves/resizes. It does not rewrite existing timing and does not constrain AI-generated rhythms.
 
+## Sheet-music upload
+
+A request may carry one PDF of sheet music (up to 10 MB, sent as base64 in the run request and never stored). Before orchestration, one model call on the orchestrator model transcribes the opening of the score into per-part, per-bar text on the song's 4/4 grid, limited to the song's bar count. The dispatcher receives the whole transcription and assigns one task per part; rhythm and pitch workers receive the bars they are filling. All four providers send the PDF natively; the OpenRouter path is untested.
+
 ## Audio and export
 
 Tone.js renders the active instrument catalog in the browser. Playback loops the song or selected region, applies live mix changes, and drives the transport, VU meters, and spectrum display. WAV export renders the current song and mix using the editable song title.

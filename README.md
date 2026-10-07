@@ -33,7 +33,9 @@ OPENAI_API_KEY=your-api-key
 
 Model defaults are in `.env.example`. To choose your own models, set `AI_ORCHESTRATOR_MODEL` for the composer that plans the arrangement and `AI_COMPOSER_MODEL` for its workers and effects. Use model IDs available to your provider account.
 
-For another provider, set `AI_PROVIDER=openrouter` with `OPENROUTER_API_KEY`, or `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY`. You only need the key for your chosen provider. Microphone transcription additionally requires an OpenAI key.
+For another provider, set `AI_PROVIDER=openrouter` with `OPENROUTER_API_KEY`, or `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY`. You only need the key for your chosen provider.
+
+To use a **Claude subscription** (Pro/Max) instead of an API key, install [Claude Code](https://claude.com/claude-code), run `claude` once and log in, then set `AI_PROVIDER=claude-subscription`. The server calls the local `claude` CLI, so no key is needed; usage counts against your subscription limits. Microphone transcription additionally requires an OpenAI key.
 
 Build and start:
 
@@ -51,6 +53,8 @@ Open **http://127.0.0.1:3001**. Keep the terminal running while using the app. O
 3. Click the cassette to compose. The companion displays progress and available model reasoning summaries.
 4. Play the music, adjust track volumes, change instruments, or edit notes.
 5. Ask for revisions, then export a WAV with the floppy-disk button.
+
+To start from written music, click **Upload sheet music (PDF)** under the request box and send. The AI reads the opening of the score (as many bars as the song has, re-barred to 4/4) and writes each part onto a track. Add a request to change how it is played, or leave the box empty to transcribe it as written. Note reading is done by the AI model, so check the result against the page; dense or scanned scores are less reliable. PDFs up to 10 MB.
 
 To edit just part of a song, select a track or highlight an area before submitting your request. The AI receives the full song for context, but only changes inside your selection are saved. Click inside the selection or press Escape to clear it and return to the whole song.
 
